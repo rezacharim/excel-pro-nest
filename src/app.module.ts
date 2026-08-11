@@ -21,6 +21,7 @@ import { TransferModule } from './modules/transfer/transfer.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MembershipModule } from './modules/membership/membership.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
+import { PortalModule } from './modules/portal/portal.module';
 
 dotenv.config({ path: '.env.local' });
 @Module({
@@ -51,6 +52,7 @@ dotenv.config({ path: '.env.local' });
     MailModule,
     MembershipModule,
     AnnouncementsModule,
+    PortalModule,
   ],
 })
 export class AppModule implements NestModule {

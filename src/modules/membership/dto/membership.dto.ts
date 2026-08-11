@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -47,6 +48,37 @@ export class RecordPaymentDto {
   @IsNumber()
   @Min(0)
   amount?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Months of membership this payment covers (membership type only)',
+    default: 2,
+    minimum: 1,
+    maximum: 12,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  months?: number;
+
+  @ApiPropertyOptional({
+    description:
+      "Payment type. 'membership' extends the subscription; 'league' only records a fee.",
+    enum: ['membership', 'league'],
+    default: 'membership',
+  })
+  @IsOptional()
+  @IsIn(['membership', 'league'])
+  type?: 'membership' | 'league';
+
+  @ApiPropertyOptional({
+    description: "Human-readable period label, e.g. 'Sep-Oct 2026'",
+  })
+  @IsOptional()
+  @IsString()
+  periodLabel?: string;
 
   @ApiPropertyOptional({
     description: 'Payment method',

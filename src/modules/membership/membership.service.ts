@@ -225,16 +225,10 @@ export class MembershipService {
 
     const amount = dto.amount ?? 380;
     const method = dto.method ?? 'etransfer';
+    const months = dto.months ?? 2;
+    const type = dto.type ?? 'membership';
+    const periodLabel = dto.periodLabel ?? null;
     const now = new Date();
-
-    // New end date = max(now, currentSubscriptionEndDate) + 2 months
-    const base =
-      user.currentSubscriptionEndDate &&
-      new Date(user.currentSubscriptionEndDate) > now
-        ? new Date(user.currentSubscriptionEndDate)
-        : new Date(now);
-    const newEnd = new Date(base);
-    newEnd.setMonth(newEnd.getMonth() + 2);
 
     const plan = Object.values(SubscriptionPlan).includes(
       user.activePlan as SubscriptionPlan,
@@ -242,12 +236,58 @@ export class MembershipService {
       ? (user.activePlan as SubscriptionPlan)
       : SubscriptionPlan.free;
 
+    if (type === 'league') {
+      // League fee: record the payment only. Do NOT touch the subscription
+      // end date or the subscription counter.
+      const payment = this.paymentRepository.create({
+        amount,
+        currency: 'cad',
+        status: PaymentStatus.ACTIVE,
+        plan,
+        method,
+        type: 'league',
+        periodLabel,
+        note: dto.note ?? null,
+        userId: user.id,
+        isFirstTimePayment: false,
+      });
+      await this.paymentRepository.save(payment);
+
+      // Best-effort email; never let it break the request
+      try {
+        if (user.email) {
+          await this.mailService.sendPaymentReceived(
+            user.email,
+            user.fullname,
+            amount,
+            null,
+            { type: 'league', periodLabel },
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Payment received email failed: ${error.message}`);
+      }
+
+      return this.toOverviewRow(user);
+    }
+
+    // New end date = max(now, currentSubscriptionEndDate) + `months` months
+    const base =
+      user.currentSubscriptionEndDate &&
+      new Date(user.currentSubscriptionEndDate) > now
+        ? new Date(user.currentSubscriptionEndDate)
+        : new Date(now);
+    const newEnd = new Date(base);
+    newEnd.setMonth(newEnd.getMonth() + months);
+
     const payment = this.paymentRepository.create({
       amount,
       currency: 'cad',
       status: PaymentStatus.ACTIVE,
       plan,
       method,
+      type: 'membership',
+      periodLabel,
       note: dto.note ?? null,
       userId: user.id,
       isFirstTimePayment: (user.subscriptionCounter ?? 0) === 0,
@@ -272,6 +312,7 @@ export class MembershipService {
           saved.fullname,
           amount,
           newEnd,
+          { type: 'membership', periodLabel },
         );
       }
     } catch (error) {

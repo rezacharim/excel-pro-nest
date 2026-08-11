@@ -53,3 +53,33 @@ CREATE TABLE IF NOT EXISTS "announcement" (
   "createdAt" timestamp NOT NULL DEFAULT now(),
   "updatedAt" timestamp NOT NULL DEFAULT now()
 );
+
+-- one-time verification codes (replaces the external Upstash Redis) ----------
+CREATE TABLE IF NOT EXISTS "otp_codes" (
+  "key" text PRIMARY KEY,
+  "code" text NOT NULL,
+  "expires_at" timestamptz NOT NULL
+);
+
+-- parent portal ---------------------------------------------------------------
+
+-- payments: payment type ('membership' | 'league') and optional period label
+ALTER TABLE "payments"
+  ADD COLUMN IF NOT EXISTS "type" character varying NOT NULL DEFAULT 'membership';
+
+ALTER TABLE "payments"
+  ADD COLUMN IF NOT EXISTS "periodLabel" character varying NULL;
+
+-- parent-portal requests (hold / installment plan)
+-- Matches src/modules/portal/entities/portal-request.entity.ts
+CREATE TABLE IF NOT EXISTS "portal_requests" (
+  "id" SERIAL PRIMARY KEY,
+  "userId" integer NOT NULL,
+  "kind" character varying NOT NULL,
+  "resumeAt" timestamp NULL,
+  "note" text NULL,
+  "totalAmount" numeric(10,2) NULL,
+  "installments" integer NULL,
+  "status" character varying NOT NULL DEFAULT 'pending',
+  "createdAt" timestamp NOT NULL DEFAULT now()
+);

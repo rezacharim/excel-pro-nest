@@ -52,6 +52,14 @@ export class Payment {
   @Column({ type: 'varchar', default: 'stripe' })
   method: string;
 
+  // Payment type: 'membership' | 'league'
+  @Column({ type: 'varchar', default: 'membership' })
+  type: string;
+
+  // Optional human-readable period, e.g. 'Sep-Oct 2026' or 'Fall League 2026'
+  @Column({ type: 'varchar', nullable: true })
+  periodLabel: string | null;
+
   @Column({ nullable: true, type: 'text' })
   note: string | null;
 

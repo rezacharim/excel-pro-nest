@@ -257,14 +257,26 @@ export class MailService {
     to: string,
     playerName: string,
     amount: number,
-    newEndDate: Date,
+    newEndDate: Date | null,
+    options?: { type?: string; periodLabel?: string | null },
   ): Promise<boolean> {
     try {
+      const type = options?.type ?? 'membership';
+      const periodLabel = options?.periodLabel ?? null;
+
+      const isLeague = type === 'league';
+      const paymentLine = isLeague
+        ? `<p>We have received your payment of <strong style="color:${BRAND_RED};">$${Number(amount).toFixed(2)} CAD</strong> for the <strong>league fee</strong>${periodLabel ? ` (<strong>${periodLabel}</strong>)` : ''}. Thank you!</p>`
+        : `<p>We have received your payment of <strong style="color:${BRAND_RED};">$${Number(amount).toFixed(2)} CAD</strong>${periodLabel ? ` for <strong>${periodLabel}</strong>` : ''}. Thank you!</p>`;
+      const statusLine = isLeague
+        ? `<p>This payment covers the league fee for <strong>${playerName}</strong>${periodLabel ? ` (${periodLabel})` : ''}. It does not change the regular membership period.</p>`
+        : `<p>The membership for <strong>${playerName}</strong> is now active until <strong>${this.formatDate(newEndDate)}</strong>.</p>`;
+
       const body = `
         ${this.heading('Payment Received - Thank You!')}
         <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
-        <p>We have received your payment of <strong style="color:${BRAND_RED};">$${Number(amount).toFixed(2)} CAD</strong>. Thank you!</p>
-        <p>The membership for <strong>${playerName}</strong> is now active until <strong>${this.formatDate(newEndDate)}</strong>.</p>
+        ${paymentLine}
+        ${statusLine}
         <p>We look forward to seeing ${playerName} on the field. Thank you for choosing ${ACADEMY_NAME}!</p>`;
       return await this.send(
         to,
@@ -273,6 +285,57 @@ export class MailService {
       );
     } catch (error) {
       this.logger.error(`sendPaymentReceived failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Notify the academy admins that a parent submitted a request from the
+   * parent portal (membership hold or installment plan).
+   */
+  async sendAdminRequestNotice(
+    kind: 'hold' | 'installment',
+    playerName: string,
+    details: Record<string, string | null | undefined>,
+  ): Promise<boolean> {
+    try {
+      if (this.adminEmails.length === 0) {
+        this.logger.warn('sendAdminRequestNotice skipped: ADMIN_EMAILS not set');
+        return false;
+      }
+
+      const label =
+        kind === 'hold' ? 'Membership Hold Request' : 'Installment Plan Request';
+
+      const rows = Object.entries(details)
+        .map(
+          ([key, value]) => `
+            <tr>
+              <td style="padding:8px 12px;border:1px solid #e5e5ea;font-weight:bold;color:${BRAND_NAVY};white-space:nowrap;">${key}</td>
+              <td style="padding:8px 12px;border:1px solid #e5e5ea;">${value ?? '-'}</td>
+            </tr>`,
+        )
+        .join('');
+
+      const body = `
+        ${this.heading(`New ${label}`)}
+        <p>A parent has submitted a <strong style="color:${BRAND_RED};">${label.toLowerCase()}</strong> for <strong>${playerName}</strong> through the parent portal.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;margin:16px 0;">
+          <tr>
+            <td style="padding:8px 12px;border:1px solid #e5e5ea;font-weight:bold;color:${BRAND_NAVY};white-space:nowrap;">Player</td>
+            <td style="padding:8px 12px;border:1px solid #e5e5ea;">${playerName}</td>
+          </tr>
+          ${rows}
+        </table>
+        <p>Please review this request in the admin dashboard and follow up with the parent.</p>`;
+
+      return await this.send(
+        this.adminEmails,
+        `Parent portal: ${label} - ${playerName}`,
+        this.layout(label, body),
+      );
+    } catch (error) {
+      this.logger.error(`sendAdminRequestNotice failed: ${error.message}`);
       return false;
     }
   }
