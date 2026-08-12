@@ -134,9 +134,35 @@ export class User {
   @Column({ nullable: false, default: 0 })
   subscriptionCounter: number;
 
-  // Membership lifecycle: 'active' | 'on_hold' | 'stopped'
+  // Membership lifecycle: 'active' | 'on_hold' | 'stopped' | 'suspended'
   @Column({ type: 'varchar', default: 'active' })
   membershipStatus: string;
+
+  // --- Suspension (manual: discipline, unpaid fees, etc.) ---
+  @Column({ nullable: true, type: 'timestamp' })
+  suspendedAt: Date | null;
+
+  /** 'late_payment' | 'discipline' | 'paperwork' | 'medical' | 'other' */
+  @Column({ nullable: true, type: 'varchar' })
+  suspensionReason: string | null;
+
+  @Column({ nullable: true, type: 'text' })
+  suspensionNote: string | null;
+
+  // --- Payment chasing ---
+  @Column({ nullable: true, type: 'timestamp' })
+  lastReminderAt: Date | null;
+
+  @Column({ nullable: false, default: 0 })
+  remindersSent: number;
+
+  // --- Coach/admin notes ---
+  @Column({ nullable: true, type: 'text' })
+  internalNote: string | null;
+
+  /** 'attending' | 'irregular' | 'not_attending' */
+  @Column({ type: 'varchar', default: 'attending' })
+  attendanceStatus: string;
 
   @Column({ nullable: true, type: 'timestamp' })
   holdStartedAt: Date | null;

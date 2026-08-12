@@ -1,6 +1,7 @@
 import {
   ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -39,6 +40,55 @@ export class ExtendMembershipDto {
   @IsOptional()
   @IsString()
   note?: string;
+}
+
+/** Why an account was suspended. Shown to admins; only some are emailed. */
+export const SUSPENSION_REASONS = [
+  'late_payment',
+  'discipline',
+  'paperwork',
+  'medical',
+  'other',
+] as const;
+
+export class SuspendMembershipDto {
+  @ApiProperty({
+    description: 'Reason for the suspension',
+    enum: SUSPENSION_REASONS,
+    example: 'late_payment',
+  })
+  @IsIn(SUSPENSION_REASONS as unknown as string[])
+  reason: string;
+
+  @ApiPropertyOptional({
+    description: 'Internal note with the details (never emailed to the parent)',
+  })
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Email the parent that the account is suspended. Defaults to true for payment reasons, false for sensitive ones (e.g. discipline) so you can call them first.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  notifyParent?: boolean;
+}
+
+export class UpdatePlayerNotesDto {
+  @ApiPropertyOptional({ description: 'Private note about this player/family' })
+  @IsOptional()
+  @IsString()
+  internalNote?: string;
+
+  @ApiPropertyOptional({
+    description: 'How regularly the player attends',
+    enum: ['attending', 'irregular', 'not_attending'],
+  })
+  @IsOptional()
+  @IsIn(['attending', 'irregular', 'not_attending'])
+  attendanceStatus?: string;
 }
 
 export class SetPlanDto {

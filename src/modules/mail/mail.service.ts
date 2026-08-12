@@ -253,6 +253,124 @@ export class MailService {
     }
   }
 
+  /**
+   * Told to a parent when the academy suspends the player's spot.
+   *
+   * The wording deliberately stays neutral and points them at a conversation
+   * rather than spelling out internal details — the private note the admin
+   * wrote is never included.
+   */
+  async sendSuspensionNotice(
+    to: string,
+    playerName: string,
+    reason: string,
+  ): Promise<boolean> {
+    try {
+      const reasonLine =
+        reason === 'late_payment'
+          ? 'an outstanding membership payment'
+          : reason === 'paperwork'
+            ? 'missing registration paperwork'
+            : reason === 'medical'
+              ? 'a medical clearance we still need'
+              : reason === 'discipline'
+                ? 'a team conduct matter we would like to discuss with you'
+                : 'an account matter we would like to discuss with you';
+
+      const payBlock =
+        reason === 'late_payment' ? this.etransferInstructions() : '';
+
+      const body = `
+        ${this.heading('Membership temporarily suspended')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        <p>We are writing to let you know that ${playerName}'s membership has been <strong style="color:${BRAND_RED};">temporarily suspended</strong> due to ${reasonLine}.</p>
+        <p>A suspension is not a cancellation — your player's place and record with us are kept, and the account is reactivated as soon as the matter is resolved.</p>
+        ${payBlock}
+        <p>Please reply to this email or call us so we can sort this out quickly and get ${playerName} back on the field.</p>`;
+      return await this.send(
+        to,
+        `Membership suspended - ${playerName}`,
+        this.layout('Membership Suspended', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendSuspensionNotice failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /** Good news email: the suspension has been lifted. */
+  async sendSuspensionLifted(
+    to: string,
+    playerName: string,
+  ): Promise<boolean> {
+    try {
+      const body = `
+        ${this.heading('Welcome back!')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        <p>Good news — the suspension on ${playerName}'s membership has been lifted and the account is <strong style="color:#0a7a2f;">active again</strong>.</p>
+        <p>We look forward to seeing ${playerName} at the next session. Thank you for sorting this out with us.</p>`;
+      return await this.send(
+        to,
+        `Membership reactivated - ${playerName}`,
+        this.layout('Membership Reactivated', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendSuspensionLifted failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Chasing email sent from the Collections screen. Unlike sendOverdueNotice
+   * (fired by the cron with fixed wording), this one states the exact amount
+   * owed and the e-transfer address configured in Settings, because an admin
+   * is following up on a specific unpaid balance.
+   */
+  async sendCollectionsReminder(
+    to: string,
+    playerName: string,
+    endDate: Date | null,
+    amountDue: number,
+    daysOverdue: number,
+    etransferEmail: string,
+  ): Promise<boolean> {
+    try {
+      const target = etransferEmail || ETRANSFER_EMAIL;
+      const amountText = `$${Number(amountDue).toFixed(2)} CAD`;
+      const overdueLine =
+        daysOverdue > 0
+          ? `<p>The membership for <strong>${playerName}</strong> expired on <strong style="color:${BRAND_RED};">${this.formatDate(endDate)}</strong> — that is <strong style="color:${BRAND_RED};">${daysOverdue} day${daysOverdue === 1 ? '' : 's'}</strong> ago — and we have not yet received the renewal payment.</p>`
+          : `<p>We have not yet received the outstanding membership payment for <strong>${playerName}</strong>.</p>`;
+
+      const body = `
+        ${this.heading('Outstanding Membership Payment')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        ${overdueLine}
+        <p>Amount outstanding: <strong style="color:${BRAND_RED};">${amountText}</strong></p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;background-color:#fdf1f0;border-left:4px solid ${BRAND_RED};border-radius:4px;">
+          <tr>
+            <td style="padding:16px 20px;font-size:14px;color:#333333;line-height:1.7;">
+              <strong style="color:${BRAND_NAVY};">How to pay by Interac e-Transfer:</strong><br />
+              1. Send your e-Transfer to <a href="mailto:${target}" style="color:${BRAND_RED};font-weight:bold;text-decoration:none;">${target}</a><br />
+              2. Include your player's <strong>full name</strong> (${playerName}) in the transfer message<br />
+              3. Amount: <strong>${amountText}</strong>
+            </td>
+          </tr>
+        </table>
+        <p>Please settle the balance as soon as possible so ${playerName} can keep training without interruption.</p>
+        <p>If you have already sent your payment, or if you would like to arrange an installment plan, please contact us — we are happy to help.</p>`;
+
+      return await this.send(
+        to,
+        `Outstanding membership payment - ${playerName}`,
+        this.layout('Outstanding Membership Payment', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendCollectionsReminder failed: ${error.message}`);
+      return false;
+    }
+  }
+
   async sendPaymentReceived(
     to: string,
     playerName: string,

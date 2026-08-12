@@ -24,6 +24,8 @@ import {
   ImportPlayersResult,
   ImportSkippedRow,
   RecordPaymentDto,
+  SuspendMembershipDto,
+  UpdatePlayerNotesDto,
 } from './dto/membership.dto';
 
 export interface MembershipOverviewRow {
@@ -39,6 +41,14 @@ export interface MembershipOverviewRow {
   overdue: boolean;
   holdResumeAt: Date | null;
   subscriptionCounter: number;
+  suspendedAt: Date | null;
+  suspensionReason: string | null;
+  suspensionNote: string | null;
+  lastReminderAt: Date | null;
+  remindersSent: number;
+  internalNote: string | null;
+  attendanceStatus: string;
+  dateOfBirth: string | null;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -78,6 +88,14 @@ export class MembershipService {
       overdue,
       holdResumeAt: user.holdResumeAt ?? null,
       subscriptionCounter: user.subscriptionCounter ?? 0,
+      suspendedAt: user.suspendedAt ?? null,
+      suspensionReason: user.suspensionReason ?? null,
+      suspensionNote: user.suspensionNote ?? null,
+      lastReminderAt: user.lastReminderAt ?? null,
+      remindersSent: user.remindersSent ?? 0,
+      internalNote: user.internalNote ?? null,
+      attendanceStatus: user.attendanceStatus || 'attending',
+      dateOfBirth: user.dateOfBirth ?? null,
     };
   }
 
@@ -213,6 +231,83 @@ export class MembershipService {
     user.holdStartedAt = null;
     user.holdResumeAt = null;
     user.holdNote = null;
+    const saved = await this.userRepository.save(user);
+    return this.toOverviewRow(saved);
+  }
+
+  /**
+   * Suspend an account. Unlike "stop" (the family left the academy) a
+   * suspension is a temporary block the academy applies — unpaid fees,
+   * discipline, missing paperwork — and it keeps the reason on record.
+   *
+   * Sensitive reasons (discipline, medical) default to NOT emailing the
+   * parent, so the academy can have that conversation by phone first.
+   */
+  async suspend(
+    userId: number,
+    dto: SuspendMembershipDto,
+  ): Promise<MembershipOverviewRow> {
+    const user = await this.getUserOrFail(userId);
+    user.membershipStatus = 'suspended';
+    user.suspendedAt = new Date();
+    user.suspensionReason = dto.reason;
+    user.suspensionNote = dto.note ?? null;
+    const saved = await this.userRepository.save(user);
+
+    const emailByDefault =
+      dto.reason === 'late_payment' || dto.reason === 'paperwork';
+    const shouldNotify = dto.notifyParent ?? emailByDefault;
+
+    if (shouldNotify && user.email) {
+      try {
+        await this.mailService.sendSuspensionNotice(
+          user.email,
+          user.fullname,
+          dto.reason,
+        );
+      } catch (error) {
+        this.logger.error(`Suspension email failed: ${error.message}`);
+      }
+    }
+
+    return this.toOverviewRow(saved);
+  }
+
+  /** Lift a suspension and put the player back on the field. */
+  async unsuspend(
+    userId: number,
+    notifyParent = true,
+  ): Promise<MembershipOverviewRow> {
+    const user = await this.getUserOrFail(userId);
+    user.membershipStatus = 'active';
+    user.suspendedAt = null;
+    user.suspensionReason = null;
+    user.suspensionNote = null;
+    const saved = await this.userRepository.save(user);
+
+    if (notifyParent && user.email) {
+      try {
+        await this.mailService.sendSuspensionLifted(user.email, user.fullname);
+      } catch (error) {
+        this.logger.error(`Reinstatement email failed: ${error.message}`);
+      }
+    }
+
+    return this.toOverviewRow(saved);
+  }
+
+  /** Private admin/coach notes and how regularly the player shows up. */
+  async updateNotes(
+    userId: number,
+    dto: UpdatePlayerNotesDto,
+  ): Promise<MembershipOverviewRow> {
+    const user = await this.getUserOrFail(userId);
+    if (dto.internalNote !== undefined) {
+      user.internalNote = dto.internalNote || null;
+    }
+    if (dto.attendanceStatus !== undefined) {
+      user.attendanceStatus = dto.attendanceStatus;
+    }
     const saved = await this.userRepository.save(user);
     return this.toOverviewRow(saved);
   }

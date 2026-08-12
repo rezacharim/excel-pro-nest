@@ -83,3 +83,57 @@ CREATE TABLE IF NOT EXISTS "portal_requests" (
   "status" character varying NOT NULL DEFAULT 'pending',
   "createdAt" timestamp NOT NULL DEFAULT now()
 );
+
+-- =============================================================================
+-- Round 5 — director access, collections, money dashboard, activity log
+-- Safe to run more than once.
+-- =============================================================================
+
+-- Players: manual suspension, payment chasing, private notes, attendance
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "suspendedAt" timestamp NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "suspensionReason" character varying NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "suspensionNote" text NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "lastReminderAt" timestamp NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "remindersSent" integer NOT NULL DEFAULT 0;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "internalNote" text NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "attendanceStatus" character varying NOT NULL DEFAULT 'attending';
+
+-- Admin accounts: creation date (shown in the Admins screen)
+ALTER TABLE "admin" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- Audit trail of every admin action
+-- Matches src/modules/activity/entities/admin-activity.entity.ts
+CREATE TABLE IF NOT EXISTS "admin_activity" (
+  "id" SERIAL PRIMARY KEY,
+  "adminId" integer NULL,
+  "adminUsername" character varying NOT NULL DEFAULT 'system',
+  "action" character varying NOT NULL,
+  "targetType" character varying NOT NULL DEFAULT 'member',
+  "targetId" integer NULL,
+  "targetName" character varying NULL,
+  "details" text NULL,
+  "createdAt" timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "IDX_admin_activity_action" ON "admin_activity" ("action");
+CREATE INDEX IF NOT EXISTS "IDX_admin_activity_createdAt" ON "admin_activity" ("createdAt");
+
+-- Record of every call/email/text to a family about money
+-- Matches src/modules/collections/entities/contact-log.entity.ts
+CREATE TABLE IF NOT EXISTS "contact_log" (
+  "id" SERIAL PRIMARY KEY,
+  "userId" integer NOT NULL,
+  "method" character varying NOT NULL DEFAULT 'call',
+  "note" text NULL,
+  "followUpAt" timestamp NULL,
+  "adminUsername" character varying NOT NULL DEFAULT 'system',
+  "createdAt" timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "IDX_contact_log_userId" ON "contact_log" ("userId");
+
+-- Academy settings the owner can change without a developer
+-- Matches src/modules/settings/entities/setting.entity.ts
+CREATE TABLE IF NOT EXISTS "academy_settings" (
+  "key" character varying PRIMARY KEY,
+  "value" text NULL,
+  "updatedAt" timestamp NOT NULL DEFAULT now()
+);

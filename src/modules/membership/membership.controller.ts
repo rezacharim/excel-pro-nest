@@ -8,6 +8,7 @@ import {
   Query,
   Res,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { Response } from 'express';
 import {
@@ -20,6 +21,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ActivityInterceptor } from '../activity/activity.interceptor';
 import { MembershipService } from './membership.service';
 import {
   ExtendMembershipDto,
@@ -27,11 +29,15 @@ import {
   ImportPlayersDto,
   RecordPaymentDto,
   SetPlanDto,
+  SuspendMembershipDto,
+  UpdatePlayerNotesDto,
 } from './dto/membership.dto';
 
 @ApiTags('Membership')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
+// Every change made here lands in the Activity log automatically.
+@UseInterceptors(ActivityInterceptor)
 @Controller('membership')
 export class MembershipController {
   constructor(private readonly membershipService: MembershipService) {}
@@ -120,6 +126,38 @@ export class MembershipController {
   @ApiParam({ name: 'userId', type: Number })
   reactivate(@Param('userId', ParseIntPipe) userId: number) {
     return this.membershipService.reactivate(userId);
+  }
+
+  @Post(':userId/suspend')
+  @ApiOperation({
+    summary:
+      'Suspend an account (late payment, discipline, paperwork, medical, other)',
+  })
+  @ApiParam({ name: 'userId', type: Number })
+  @ApiBody({ type: SuspendMembershipDto })
+  suspend(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: SuspendMembershipDto,
+  ) {
+    return this.membershipService.suspend(userId, dto);
+  }
+
+  @Post(':userId/unsuspend')
+  @ApiOperation({ summary: 'Lift a suspension and reactivate the membership' })
+  @ApiParam({ name: 'userId', type: Number })
+  unsuspend(@Param('userId', ParseIntPipe) userId: number) {
+    return this.membershipService.unsuspend(userId);
+  }
+
+  @Post(':userId/notes')
+  @ApiOperation({ summary: 'Update private notes / attendance for a player' })
+  @ApiParam({ name: 'userId', type: Number })
+  @ApiBody({ type: UpdatePlayerNotesDto })
+  updateNotes(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: UpdatePlayerNotesDto,
+  ) {
+    return this.membershipService.updateNotes(userId, dto);
   }
 
   @Post(':userId/set-plan')

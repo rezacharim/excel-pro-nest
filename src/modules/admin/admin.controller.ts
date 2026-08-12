@@ -1,88 +1,146 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Patch,
-  Param,
+  Controller,
   Delete,
-  HttpCode,
-  HttpStatus,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
-import { AdminService } from './admin.service';
-import { UpdateAdminDto } from './dto/update-admin.dto';
-import { CreateAuthDto } from '../auth/dto/create-auth.dto';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
+  ApiBearerAuth,
   ApiBody,
+  ApiOperation,
   ApiParam,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { Admin } from '../auth/entities/admin.entity';
+import { AdminService } from './admin.service';
+import { CreateAdminDto } from './dto/create-admin.dto';
+import { UpdateAdminDto } from './dto/update-admin.dto';
+import { ResetAdminPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { UpdateAuthDto } from '../auth/dto/update-auth.dto';
+import { Admin } from '../auth/entities/admin.entity';
+
+/** JwtAuthGuard puts the signed-in Admin entity on the request. */
+interface RequestWithAdmin {
+  user: Admin;
+}
+
+const PUBLIC_ADMIN_SHAPE =
+  '{ id, username, email, first_name, last_name, account_status, last_login, createdAt }';
 
 @ApiTags('Admin')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @Post()
-  @ApiOperation({ summary: 'Create a new admin' })
-  @ApiBody({ type: CreateAuthDto })
-  @ApiResponse({
-    status: 201,
-    description: 'Admin created successfully',
-    type: Admin,
-  })
-  @ApiResponse({ status: 400, description: 'Bad Request' })
-  create(@Body() createAdminDto: CreateAuthDto) {
-    return this.adminService.create(createAdminDto);
-  }
-
-  @UseGuards(JwtAuthGuard)
   @Get()
-  @ApiOperation({ summary: 'Get all admins' })
-  @ApiResponse({ status: 200, description: 'List of admins', type: [Admin] })
+  @ApiOperation({
+    summary: 'List all admin accounts (never includes passwords)',
+  })
+  @ApiResponse({ status: 200, description: `Array of ${PUBLIC_ADMIN_SHAPE}` })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   findAll() {
     return this.adminService.findAll();
   }
 
-  @UseGuards(JwtAuthGuard)
+  // Must stay above ':id' so that "me" is not swallowed by the id route.
+  @Get('me')
+  @ApiOperation({ summary: 'The currently signed-in admin' })
+  @ApiResponse({ status: 200, description: PUBLIC_ADMIN_SHAPE })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  me(@Req() req: RequestWithAdmin) {
+    return this.adminService.findOne(req.user.id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get one admin by ID' })
   @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({ status: 200, description: 'Admin found', type: Admin })
+  @ApiResponse({ status: 200, description: PUBLIC_ADMIN_SHAPE })
   @ApiResponse({ status: 404, description: 'Admin not found' })
-  findOne(@Param('id') id: string) {
-    return this.adminService.findOne(+id);
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.adminService.findOne(id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @Post()
+  @ApiOperation({ summary: 'Create a new admin account' })
+  @ApiBody({ type: CreateAdminDto })
+  @ApiResponse({ status: 201, description: PUBLIC_ADMIN_SHAPE })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation failed (password < 10 characters)',
+  })
+  @ApiResponse({ status: 409, description: 'Username or email already in use' })
+  create(@Body() dto: CreateAdminDto, @Req() req: RequestWithAdmin) {
+    return this.adminService.create(dto, req.user);
+  }
+
   @Patch(':id')
-  @ApiOperation({ summary: 'Update an admin by ID' })
+  @ApiOperation({ summary: 'Update an admin account' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: UpdateAdminDto })
+  @ApiResponse({ status: 200, description: PUBLIC_ADMIN_SHAPE })
   @ApiResponse({
-    status: 200,
-    description: 'Admin updated successfully',
-    type: Admin,
+    status: 400,
+    description: 'No update data, or last active admin',
   })
   @ApiResponse({ status: 404, description: 'Admin not found' })
-  update(@Param('id') id: string, @Body() updateAdminDto: UpdateAuthDto) {
-    return this.adminService.update(+id, updateAdminDto);
+  @ApiResponse({ status: 409, description: 'Email already in use' })
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateAdminDto,
+    @Req() req: RequestWithAdmin,
+  ) {
+    return this.adminService.update(id, dto, req.user);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete an admin by ID' })
+  @Post(':id/reset-password')
+  @ApiOperation({
+    summary: 'Set a new password for an admin, clearing lockout',
+  })
   @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({ status: 204, description: 'Admin deleted successfully' })
+  @ApiBody({ type: ResetAdminPasswordDto })
+  @ApiResponse({ status: 201, description: PUBLIC_ADMIN_SHAPE })
+  @ApiResponse({
+    status: 400,
+    description: 'Password shorter than 10 characters',
+  })
   @ApiResponse({ status: 404, description: 'Admin not found' })
-  @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string) {
-    return this.adminService.remove(+id);
+  resetPassword(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ResetAdminPasswordDto,
+    @Req() req: RequestWithAdmin,
+  ) {
+    return this.adminService.resetPassword(id, dto.password, req.user);
+  }
+
+  @Post(':id/unlock')
+  @ApiOperation({
+    summary: 'Unlock an admin locked out by failed logins',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 201, description: PUBLIC_ADMIN_SHAPE })
+  @ApiResponse({ status: 404, description: 'Admin not found' })
+  unlock(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithAdmin) {
+    return this.adminService.unlock(id, req.user);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete an admin account' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: '{ message }' })
+  @ApiResponse({
+    status: 400,
+    description: 'Own account, or the last active admin',
+  })
+  @ApiResponse({ status: 404, description: 'Admin not found' })
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithAdmin) {
+    return this.adminService.remove(id, req.user);
   }
 }

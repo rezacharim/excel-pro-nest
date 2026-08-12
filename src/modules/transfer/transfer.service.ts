@@ -22,6 +22,7 @@ import { NotificationsService } from './notificationsService.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { MailService, AdminDigestRow } from '../mail/mail.service';
 import { MembershipService } from '../membership/membership.service';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class TransferService {
@@ -33,6 +34,7 @@ export class TransferService {
     private notificationsService: NotificationsService,
     private mailService: MailService,
     private membershipService: MembershipService,
+    private settingsService: SettingsService,
   ) {}
 
   // MAIN ISSUE: When the second user registers, information is recorded under the first user's name
@@ -433,11 +435,18 @@ export class TransferService {
       }
     }
 
-    // Users with expired subscriptions (within 10 days, active memberships only)
-    const tenDaysAgo = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
+    // Overdue chase-up. Reminders escalate on a fixed schedule — day 1, 3, 7,
+    // 14, then weekly — instead of every second day forever, so parents are
+    // not spammed but nothing quietly falls through the cracks either.
+    const REMINDER_DAYS = [1, 3, 7, 14];
+    const isReminderDay = (daysOverdue: number) =>
+      REMINDER_DAYS.includes(daysOverdue) ||
+      (daysOverdue > 14 && daysOverdue % 7 === 0);
+
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     const usersWithExpiredSubscriptions = await this.userRepository.find({
       where: {
-        currentSubscriptionEndDate: Between(tenDaysAgo, now),
+        currentSubscriptionEndDate: Between(sixtyDaysAgo, now),
         activePlan: Not(IsNull()),
         membershipStatus: 'active',
       },
@@ -449,7 +458,32 @@ export class TransferService {
           (24 * 60 * 60 * 1000),
       );
 
-      if (daysSinceExpiry % 2 === 0) {
+      // Optional auto-suspend, off unless the academy turns it on in Settings.
+      try {
+        const settings = await this.settingsService.getAll();
+        if (
+          settings.autoSuspendEnabled &&
+          daysSinceExpiry >= settings.autoSuspendDays
+        ) {
+          user.membershipStatus = 'suspended';
+          user.suspendedAt = now;
+          user.suspensionReason = 'late_payment';
+          user.suspensionNote = `Automatically suspended after ${daysSinceExpiry} days overdue`;
+          await this.userRepository.save(user);
+          if (user.email) {
+            await this.mailService.sendSuspensionNotice(
+              user.email,
+              user.fullname,
+              'late_payment',
+            );
+          }
+          continue; // suspended today: the suspension email replaces the reminder
+        }
+      } catch (err) {
+        console.error('❌ Auto-suspend check failed –', err.message);
+      }
+
+      if (isReminderDay(daysSinceExpiry)) {
         try {
           await this.notificationsService.sendPostExpiryRenewalReminder(
             user.phone_number,
@@ -467,11 +501,18 @@ export class TransferService {
         // Email alongside SMS (best-effort)
         try {
           if (user.email) {
-            await this.mailService.sendOverdueNotice(
+            const sent = await this.mailService.sendOverdueNotice(
               user.email,
               user.fullname,
               user.currentSubscriptionEndDate,
             );
+            // Track the chase so the Collections screen shows how many
+            // reminders a family has already had.
+            if (sent) {
+              user.remindersSent = (user.remindersSent || 0) + 1;
+              user.lastReminderAt = now;
+              await this.userRepository.save(user);
+            }
           }
         } catch (err) {
           console.error(

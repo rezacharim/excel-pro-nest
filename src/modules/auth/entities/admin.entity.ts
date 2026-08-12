@@ -1,4 +1,9 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 
 @Entity('admin')
 export class Admin {
@@ -36,6 +41,12 @@ export class Admin {
 
   @Column({ type: 'int', nullable: false, default: 0 })
   failed_attempts: number;
+
+  @CreateDateColumn({
+    type: 'timestamp',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
+  createdAt: Date;
 
   //   @OneToMany(() => Matche, (matche) => matche.admin)
   //   matches: Matche[];

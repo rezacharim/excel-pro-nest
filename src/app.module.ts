@@ -22,6 +22,10 @@ import { MailModule } from './modules/mail/mail.module';
 import { MembershipModule } from './modules/membership/membership.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { PortalModule } from './modules/portal/portal.module';
+import { ActivityModule } from './modules/activity/activity.module';
+import { SettingsModule } from './modules/settings/settings.module';
+import { FinanceModule } from './modules/finance/finance.module';
+import { CollectionsModule } from './modules/collections/collections.module';
 
 dotenv.config({ path: '.env.local' });
 @Module({
@@ -38,6 +42,9 @@ dotenv.config({ path: '.env.local' });
     }),
     PaymentModule.forRootAsync(),
     PassportModule,
+    // Global helpers first so every other module can inject them.
+    ActivityModule,
+    SettingsModule,
     AuthModule,
     UsersModule,
     ProgramsModule,
@@ -53,6 +60,8 @@ dotenv.config({ path: '.env.local' });
     MembershipModule,
     AnnouncementsModule,
     PortalModule,
+    FinanceModule,
+    CollectionsModule,
   ],
 })
 export class AppModule implements NestModule {
