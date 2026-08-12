@@ -217,6 +217,21 @@ export class MembershipService {
     return this.toOverviewRow(saved);
   }
 
+  /**
+   * Set (or correct) the program a player belongs to. Players who registered
+   * without picking a program first were stored with a placeholder plan; this
+   * lets an admin fix that from the Memberships screen.
+   */
+  async setPlan(
+    userId: number,
+    plan: string,
+  ): Promise<MembershipOverviewRow> {
+    const user = await this.getUserOrFail(userId);
+    user.activePlan = plan as SubscriptionPlan;
+    const saved = await this.userRepository.save(user);
+    return this.toOverviewRow(saved);
+  }
+
   async recordPayment(
     userId: number,
     dto: RecordPaymentDto,

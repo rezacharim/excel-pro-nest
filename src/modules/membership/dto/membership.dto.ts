@@ -41,6 +41,16 @@ export class ExtendMembershipDto {
   note?: string;
 }
 
+export class SetPlanDto {
+  @ApiProperty({
+    description: 'Program the player belongs to',
+    enum: ['U5_U8', 'U9_U12', 'U13_U14', 'U15_U18'],
+    example: 'U9_U12',
+  })
+  @IsIn(['U5_U8', 'U9_U12', 'U13_U14', 'U15_U18'])
+  plan: 'U5_U8' | 'U9_U12' | 'U13_U14' | 'U15_U18';
+}
+
 export class RecordPaymentDto {
   @ApiPropertyOptional({ description: 'Amount in CAD', default: 380 })
   @IsOptional()

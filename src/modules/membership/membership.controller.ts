@@ -26,6 +26,7 @@ import {
   HoldMembershipDto,
   ImportPlayersDto,
   RecordPaymentDto,
+  SetPlanDto,
 } from './dto/membership.dto';
 
 @ApiTags('Membership')
@@ -119,6 +120,17 @@ export class MembershipController {
   @ApiParam({ name: 'userId', type: Number })
   reactivate(@Param('userId', ParseIntPipe) userId: number) {
     return this.membershipService.reactivate(userId);
+  }
+
+  @Post(':userId/set-plan')
+  @ApiOperation({ summary: "Set or correct a player's program (age group)" })
+  @ApiParam({ name: 'userId', type: Number })
+  @ApiBody({ type: SetPlanDto })
+  setPlan(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: SetPlanDto,
+  ) {
+    return this.membershipService.setPlan(userId, dto.plan);
   }
 
   @Post(':userId/record-payment')
