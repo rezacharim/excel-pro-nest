@@ -10,6 +10,7 @@ import { PortalService } from './portal.service';
 import { PortalGuard } from './portal.guard';
 import {
   PortalLoginDto,
+  RenewDto,
   RequestHoldDto,
   RequestInstallmentsDto,
 } from './dto/portal.dto';
@@ -36,6 +37,18 @@ export class PortalController {
   })
   me(@Req() req: { parentEmail: string }) {
     return this.portalService.me(req.parentEmail);
+  }
+
+  @Post('renew')
+  @UseGuards(PortalGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Start a membership renewal (creates a pending e-transfer payment request)',
+  })
+  @ApiBody({ type: RenewDto })
+  renew(@Req() req: { parentEmail: string }, @Body() dto: RenewDto) {
+    return this.portalService.renew(req.parentEmail, dto);
   }
 
   @Post('request-hold')

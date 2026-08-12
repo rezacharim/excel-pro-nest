@@ -16,6 +16,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 import { generateSevenDigitRandomNumber } from '../../common/utils/random';
 import { MailService } from '../mail/mail.service';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class UsersService {
@@ -28,6 +29,7 @@ export class UsersService {
     private readonly twilioService: TwilioService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    private readonly jwtService: JwtService,
   ) {
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseKey = this.configService.get<string>('SUPABASE_KEY');
@@ -111,7 +113,7 @@ export class UsersService {
   async verifyEmailOtp(
     email: string,
     otp: string,
-  ): Promise<{ success: boolean }> {
+  ): Promise<{ success: boolean; token: string; email: string }> {
     const normalizedEmail = this.normalizeEmail(email);
     const storedOtp = await this.redisService.getOTP(
       `otp:email:${normalizedEmail}`,
@@ -120,7 +122,14 @@ export class UsersService {
       throw new BadRequestException('Invalid or expired OTP');
     }
     await this.redisService.deleteOTP(`otp:email:${normalizedEmail}`);
-    return { success: true };
+    // One verification = one parent-portal session. The same token works for
+    // the family dashboard (/account), so registering and managing players
+    // is a single sign-in — no second code needed.
+    const token = this.jwtService.sign(
+      { email: normalizedEmail, role: 'parent' },
+      { expiresIn: '30d' },
+    );
+    return { success: true, token, email: normalizedEmail };
   }
 
   private getBase64MimeType(base64String: string): {

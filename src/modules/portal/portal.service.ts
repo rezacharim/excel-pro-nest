@@ -10,10 +10,15 @@ import { JwtService } from '@nestjs/jwt';
 import { User } from '../users/entities/user.entity';
 import { Payment } from '../payment/entities/payment.entity';
 import { PortalRequest } from './entities/portal-request.entity';
+import { Transfer } from '../transfer/entities/transfer.entity';
+import { TransferStatus } from '../transfer/entities/enums/transfer-status.enum';
+import { SubscriptionPlan } from '../users/entities/enums/enums';
 import { RedisService } from '../../common/db/redis.service';
 import { MailService } from '../mail/mail.service';
+import { v4 as uuidv4 } from 'uuid';
 import {
   PortalLoginDto,
+  RenewDto,
   RequestHoldDto,
   RequestInstallmentsDto,
 } from './dto/portal.dto';
@@ -64,6 +69,8 @@ export class PortalService {
     private readonly paymentRepository: Repository<Payment>,
     @InjectRepository(PortalRequest)
     private readonly portalRequestRepository: Repository<PortalRequest>,
+    @InjectRepository(Transfer)
+    private readonly transferRepository: Repository<Transfer>,
     private readonly redisService: RedisService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
@@ -181,6 +188,86 @@ export class PortalService {
       throw new NotFoundException('Player not found');
     }
     return user;
+  }
+
+  /**
+   * Start a membership renewal from the parent portal.
+   *
+   * Creates (or re-uses) a pending e-transfer payment request for the player,
+   * exactly like the one created during registration, so the admin verifies
+   * it with the same dashboard tools. The amount is decided server-side:
+   * $455 for a first-ever payment ($380 + $75 one-time fee), $380 otherwise.
+   */
+  async renew(
+    email: string,
+    dto: RenewDto,
+  ): Promise<{
+    transferId: string | number;
+    token: string;
+    amount: number;
+    plan: string;
+    isFirstTimePayment: boolean;
+    playerName: string;
+  }> {
+    const user = await this.getOwnedPlayer(email, dto.userId);
+
+    // Re-use an existing pending request so double-clicks or refreshes never
+    // create duplicate payment requests for the same player.
+    let transfer = await this.transferRepository.findOne({
+      where: { userId: user.id, status: TransferStatus.PENDING },
+    });
+
+    if (!transfer) {
+      const isFirstTimePayment = (user.subscriptionCounter ?? 0) === 0;
+      const amount = isFirstTimePayment ? 455 : 380;
+      const plan =
+        user.activePlan &&
+        Object.values(SubscriptionPlan).includes(
+          user.activePlan as SubscriptionPlan,
+        )
+          ? (user.activePlan as SubscriptionPlan)
+          : SubscriptionPlan.U13_U14;
+
+      const expiryDate = new Date();
+      expiryDate.setHours(expiryDate.getHours() + 48);
+
+      transfer = this.transferRepository.create({
+        userId: user.id,
+        user,
+        plan,
+        amount,
+        token: uuidv4(),
+        expiryDate,
+        isFirstTimePayment,
+        status: TransferStatus.PENDING,
+      });
+      transfer = await this.transferRepository.save(transfer);
+
+      // Best-effort heads-up for the admins; never break the renewal.
+      try {
+        await this.mailService.sendAdminRequestNotice(
+          'renewal payment started',
+          user.fullname,
+          {
+            'Parent email': this.normalizeEmail(email),
+            Amount: `$${amount} CAD (e-transfer)`,
+            Plan: String(plan),
+            Note: 'Verify it in Dashboard once the e-transfer arrives.',
+          },
+        );
+      } catch (error) {
+        this.logger.error(`Admin renewal email failed: ${error.message}`);
+      }
+    }
+
+    return {
+      transferId: transfer.id,
+      token: transfer.token,
+      amount: Number(transfer.amount),
+      plan: String(transfer.plan),
+      isFirstTimePayment: transfer.isFirstTimePayment,
+      playerName: user.fullname,
+    };
   }
 
   async requestHold(

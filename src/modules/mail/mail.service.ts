@@ -294,7 +294,7 @@ export class MailService {
    * parent portal (membership hold or installment plan).
    */
   async sendAdminRequestNotice(
-    kind: 'hold' | 'installment',
+    kind: 'hold' | 'installment' | string,
     playerName: string,
     details: Record<string, string | null | undefined>,
   ): Promise<boolean> {
@@ -305,7 +305,13 @@ export class MailService {
       }
 
       const label =
-        kind === 'hold' ? 'Membership Hold Request' : 'Installment Plan Request';
+        kind === 'hold'
+          ? 'Membership Hold Request'
+          : kind === 'installment'
+            ? 'Installment Plan Request'
+            : kind === 'renewal payment started'
+              ? 'Renewal Payment Started'
+              : `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
 
       const rows = Object.entries(details)
         .map(

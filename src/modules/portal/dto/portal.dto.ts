@@ -19,6 +19,13 @@ export class PortalLoginDto {
   otp: string;
 }
 
+export class RenewDto {
+  @ApiProperty({ description: 'Player (user) id to renew the membership for' })
+  @Type(() => Number)
+  @IsInt()
+  userId: number;
+}
+
 export class RequestHoldDto {
   @ApiProperty({ description: 'Player (user) id the request is for' })
   @Type(() => Number)
