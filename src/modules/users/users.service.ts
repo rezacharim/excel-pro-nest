@@ -9,7 +9,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { RedisService } from '../../common/db/redis.service';
 import { User } from './entities/user.entity';
 import { otpGenerator } from '../../common/utils/otp-generator';
-import { TwilioService } from '../sms/sms.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UploadPhotoDto } from './dto/upload-photo.dto';
 import { createClient } from '@supabase/supabase-js';
@@ -26,7 +25,6 @@ export class UsersService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>, // Fixed typo: userRpository -> userRepository
     private readonly redisService: RedisService,
-    private readonly twilioService: TwilioService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
@@ -41,35 +39,21 @@ export class UsersService {
     }
   }
 
-  async sendOtp(phone_number: string): Promise<{ message: string }> {
-    const otp = otpGenerator();
-    if (!phone_number) throw new BadRequestException('Incorrect Phone Number.');
-
-    await this.redisService.setOTP(`otp:${phone_number}`, otp);
-
-    try {
-      // Send OTP via Twilio
-      await this.twilioService.sendSMS(
-        phone_number,
-        `Your verification code is: ${otp}`,
-      );
-
-      return {
-        message: 'OTP Code sent successfully',
-      };
-    } catch (error) {
-      console.error('Error sending OTP via Twilio:', error);
-      throw new BadRequestException('Failed to send OTP');
-    }
+  /**
+   * Phone verification is retired — the academy verifies parents by email
+   * only (see sendEmailOtp). Kept as a clear error so any old client that
+   * still calls it gets a sensible message instead of a silent failure.
+   */
+  async sendOtp(): Promise<{ message: string }> {
+    throw new BadRequestException(
+      'Phone verification is no longer used. Please verify by email.',
+    );
   }
 
-  async verifyOtp(phone: string, otp: string): Promise<{ success: boolean }> {
-    const storedOtp = await this.redisService.getOTP(`otp:${phone}`);
-    if (!storedOtp || storedOtp !== otp) {
-      throw new BadRequestException('Invalid or expired OTP');
-    }
-    await this.redisService.deleteOTP(`otp:${phone}`);
-    return { success: true };
+  async verifyOtp(): Promise<{ success: boolean }> {
+    throw new BadRequestException(
+      'Phone verification is no longer used. Please verify by email.',
+    );
   }
 
   // Email OTP flow (free alternative to SMS OTP)
@@ -175,6 +159,7 @@ export class UsersService {
         custom_position,
         photoUrl,
         NationalIdCard,
+        medicalNotes,
       } = createUserDto;
 
       // Convert numeric values
@@ -229,8 +214,10 @@ export class UsersService {
         experienceLevel,
         player_positions,
         custom_position,
-        photoUrl: uploadedPhotoUrl || '',
-        NationalIdCard: uploadedIdCardUrl || '',
+        photoUrl: uploadedPhotoUrl || null,
+        // Government ID is no longer collected during registration.
+        NationalIdCard: uploadedIdCardUrl || null,
+        medicalNotes: medicalNotes || null,
         policy: true,
       };
 

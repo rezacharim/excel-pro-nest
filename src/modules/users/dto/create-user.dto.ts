@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsNotEmpty,
   IsString,
@@ -29,15 +29,21 @@ export class CreateUserDto {
   @IsString()
   dateOfBirth: string;
 
-  @ApiProperty({ description: 'Height in Centimeter (CM)', example: 175 })
-  @IsNotEmpty()
+  @ApiPropertyOptional({
+    description: 'Height in cm. No longer asked during sign-up.',
+    example: 175,
+  })
+  @IsOptional()
   @IsString()
-  height: string;
+  height?: string;
 
-  @ApiProperty({ description: 'Weight in Kilo Gram (KG)', example: 70 })
-  @IsNotEmpty()
+  @ApiPropertyOptional({
+    description: 'Weight in kg. No longer asked during sign-up.',
+    example: 70,
+  })
+  @IsOptional()
   @IsString()
-  weight: string;
+  weight?: string;
 
   @ApiProperty({
     description: 'T-Shirt Size (Jersey). For youth size use: YM OR YL',
@@ -98,10 +104,10 @@ export class CreateUserDto {
     description: 'City',
     example: 'New York',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(100)
-  city: string;
+  city?: string;
 
   @ApiProperty({
     description: 'Emergency Contact Name',
@@ -148,6 +154,16 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   NationalIdCard?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Allergies, asthma, medication or anything a coach must know on the field',
+    example: 'Peanut allergy — carries an EpiPen',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  medicalNotes?: string;
 
   @ApiProperty({ enum: Gender, description: 'Gender of the user' })
   @IsNotEmpty()

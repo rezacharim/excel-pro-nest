@@ -139,6 +139,13 @@ export class QuickAddPlayerDto {
   @IsOptional()
   @IsString()
   internalNote?: string;
+
+  @ApiPropertyOptional({
+    description: 'Allergies / medical information a coach must know',
+  })
+  @IsOptional()
+  @IsString()
+  medicalNotes?: string;
 }
 
 /** Why an account was suspended. Shown to admins; only some are emailed. */
@@ -188,6 +195,13 @@ export class UpdatePlayerNotesDto {
   @IsOptional()
   @IsIn(['attending', 'irregular', 'not_attending'])
   attendanceStatus?: string;
+
+  @ApiPropertyOptional({
+    description: 'Allergies / medical information a coach must know',
+  })
+  @IsOptional()
+  @IsString()
+  medicalNotes?: string;
 }
 
 export class SetPlanDto {

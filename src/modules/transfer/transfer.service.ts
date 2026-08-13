@@ -20,7 +20,6 @@ import { PaymentStatus } from '../payment/entities/enums/payment-status.enum';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { TransferStatus } from './entities/enums/transfer-status.enum';
 import { v4 as uuidv4 } from 'uuid';
-import { NotificationsService } from './notificationsService.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { MailService, AdminDigestRow } from '../mail/mail.service';
 import { MembershipService } from '../membership/membership.service';
@@ -35,7 +34,6 @@ export class TransferService {
     private userRepository: Repository<User>,
     @InjectRepository(Payment)
     private paymentRepository: Repository<Payment>,
-    private notificationsService: NotificationsService,
     private mailService: MailService,
     private membershipService: MembershipService,
     private settingsService: SettingsService,
@@ -120,16 +118,18 @@ export class TransferService {
 
     const savedTransfer = await this.transferRepository.save(transfer);
 
-    // Best-effort SMS: a dead SMS provider must not block a registration.
+    // Email the parent the e-transfer details (SMS is switched off).
     try {
-      await this.notificationsService.sendTransferInstructions(
-        user.phone_number,
-        savedTransfer.token,
-        savedTransfer.amount,
-        savedTransfer.plan,
-      );
+      if (user.email) {
+        await this.mailService.sendPaymentInstructions(
+          user.email,
+          user.fullname,
+          Number(savedTransfer.amount),
+          savedTransfer.isFirstTimePayment,
+        );
+      }
     } catch (error) {
-      console.error('❌ Transfer instructions SMS failed (ignored) –', error.message);
+      console.error('❌ Payment instructions email failed (ignored) –', error.message);
     }
 
     return savedTransfer;
@@ -181,16 +181,21 @@ export class TransferService {
 
     const savedTransfer = await this.transferRepository.save(transfer);
 
-    // Best-effort admin SMS; the parent's confirmation must always succeed.
+    // Tell the admins by email that money is waiting to be verified.
     try {
-      await this.notificationsService.notifyAdminsAboutPayment(
-        savedTransfer.id as number,
+      await this.mailService.sendAdminRequestNotice(
+        'payment confirmation',
         savedTransfer.user.fullname,
-        Number(savedTransfer.amount),
-        savedTransfer.plan,
+        {
+          Amount: `$${Number(savedTransfer.amount).toFixed(2)} CAD`,
+          Plan: String(savedTransfer.plan),
+          'Parent email': savedTransfer.user.email || '-',
+          Phone: savedTransfer.user.phone_number || '-',
+          Note: 'The parent says they have sent the e-transfer. Approve it in Dashboard -> Payments once it arrives.',
+        },
       );
     } catch (error) {
-      console.error('❌ Admin payment SMS failed (ignored) –', error.message);
+      console.error('❌ Admin payment email failed (ignored) –', error.message);
     }
 
     return savedTransfer;
@@ -230,14 +235,16 @@ export class TransferService {
     if (!isApproved) {
       transfer.status = TransferStatus.REJECTED;
       try {
-        await this.notificationsService.sendPaymentRejectionNotification(
-          transfer.user.phone_number,
-          transfer.plan,
-          Number(transfer.amount),
-          notes || 'Payment could not be verified',
-        );
+        if (transfer.user.email) {
+          await this.mailService.sendPaymentRejected(
+            transfer.user.email,
+            transfer.user.fullname,
+            Number(transfer.amount),
+            notes || 'Payment could not be verified',
+          );
+        }
       } catch (error) {
-        console.error('❌ Rejection SMS failed (ignored) –', error.message);
+        console.error('❌ Rejection email failed (ignored) –', error.message);
       }
 
       if (transfer.isFirstTimePayment && transfer.user.isTemporary) {
@@ -322,19 +329,8 @@ export class TransferService {
       console.error('❌ Could not record payment for transfer –', error.message);
     }
 
-    // Notifications are best-effort: the SMS provider or SMTP being down must
-    // never fail an approval the admin already made.
-    try {
-      await this.notificationsService.sendPaymentApprovalNotification(
-        transfer.user.phone_number,
-        transfer.plan,
-        Number(transfer.amount),
-        endDate,
-      );
-    } catch (error) {
-      console.error('❌ Approval SMS failed (ignored) –', error.message);
-    }
-
+    // Notifications are best-effort: SMTP being down must never fail an
+    // approval the admin already made.
     try {
       if (user.email) {
         await this.mailService.sendPaymentReceived(
@@ -408,11 +404,6 @@ export class TransferService {
         transfer.status = TransferStatus.EXPIRED;
         await this.transferRepository.save(transfer);
 
-        await this.notificationsService.sendTransferExpiryNotification(
-          transfer.user.phone_number,
-          transfer.amount,
-          transfer.plan,
-        );
         await new Promise((r) => setTimeout(r, 1000));
       } catch (err) {
         console.error(
@@ -474,19 +465,6 @@ export class TransferService {
     });
 
     for (const user of usersExpiringSoon) {
-      try {
-        await this.notificationsService.sendSubscriptionRenewalReminder(
-          user.phone_number,
-          user.activePlan,
-          user.currentSubscriptionEndDate,
-        );
-        await new Promise((r) => setTimeout(r, 1000));
-      } catch (err) {
-        console.error(
-          `❌ Error sending renewal reminder to user ID: ${user.id} –`,
-          err.message,
-        );
-      }
 
       // Email alongside SMS (best-effort)
       try {
@@ -554,19 +532,6 @@ export class TransferService {
       }
 
       if (isReminderDay(daysSinceExpiry)) {
-        try {
-          await this.notificationsService.sendPostExpiryRenewalReminder(
-            user.phone_number,
-            user.activePlan,
-            user.currentSubscriptionEndDate,
-          );
-          await new Promise((r) => setTimeout(r, 1000));
-        } catch (err) {
-          console.error(
-            `❌ Error sending post-expiry reminder to user ID: ${user.id} –`,
-            err.message,
-          );
-        }
 
         // Email alongside SMS (best-effort)
         try {

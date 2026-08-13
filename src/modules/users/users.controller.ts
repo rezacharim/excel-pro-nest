@@ -44,7 +44,7 @@ export class UsersController {
     },
   })
   sendOtp(@Body('phone_number') phone_number: string) {
-    return this.usersService.sendOtp(phone_number);
+    return this.usersService.sendOtp();
   }
 
   @Post('verify-otp')
@@ -64,7 +64,7 @@ export class UsersController {
     @Body('phone_number') phone_number: string,
     @Body('otp') otp: string,
   ) {
-    return this.usersService.verifyOtp(phone_number, otp);
+    return this.usersService.verifyOtp();
   }
 
   @Post('send-email-otp')

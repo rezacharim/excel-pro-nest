@@ -254,6 +254,74 @@ export class MailService {
   }
 
   /**
+   * Sent the moment a parent starts an e-transfer payment, so the details are
+   * in their inbox while they are in their banking app. This replaces the old
+   * SMS with the same information.
+   */
+  async sendPaymentInstructions(
+    to: string,
+    playerName: string,
+    amount: number,
+    isFirstTime: boolean,
+  ): Promise<boolean> {
+    try {
+      const breakdown = isFirstTime
+        ? `<p style="color:#555555;font-size:14px;">This is $380 for the first 2 months plus the one-time $75 registration fee.</p>`
+        : '';
+      const body = `
+        ${this.heading('How to send your payment')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        <p>Here are the details for your Interac e-Transfer:</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;background-color:#fdf1f0;border-left:4px solid ${BRAND_RED};border-radius:4px;">
+          <tr>
+            <td style="padding:16px 20px;font-size:15px;color:#333333;line-height:1.9;">
+              <strong style="color:${BRAND_NAVY};">Send to:</strong>
+              <a href="mailto:${ETRANSFER_EMAIL}" style="color:${BRAND_RED};font-weight:bold;text-decoration:none;">${ETRANSFER_EMAIL}</a><br />
+              <strong style="color:${BRAND_NAVY};">Amount:</strong> $${amount.toFixed(2)} CAD<br />
+              <strong style="color:${BRAND_NAVY};">Message:</strong> ${playerName}
+            </td>
+          </tr>
+        </table>
+        ${breakdown}
+        <p>Please put <strong>${playerName}</strong>'s name in the e-transfer message so we can match your payment to the right player.</p>
+        <p>Once you have sent it, return to the website and press <strong>"I have sent the e-transfer"</strong>. We usually confirm within 1&ndash;2 business days.</p>`;
+      return await this.send(
+        to,
+        `Payment details for ${playerName} - $${amount.toFixed(2)} CAD`,
+        this.layout('Payment Instructions', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendPaymentInstructions failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /** Sent when an admin could not verify a payment. */
+  async sendPaymentRejected(
+    to: string,
+    playerName: string,
+    amount: number,
+    reason: string,
+  ): Promise<boolean> {
+    try {
+      const body = `
+        ${this.heading('We could not confirm your payment')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        <p>We were not able to verify the payment of <strong>$${amount.toFixed(2)} CAD</strong> for ${playerName}.</p>
+        <p style="background-color:#fdf1f0;border-left:4px solid ${BRAND_RED};padding:12px 16px;border-radius:4px;"><strong>Reason:</strong> ${reason}</p>
+        <p>This is usually just a mix-up — a missing name in the transfer message, or a transfer that has not landed yet. Please reply to this email and we will sort it out with you.</p>`;
+      return await this.send(
+        to,
+        `Payment could not be confirmed - ${playerName}`,
+        this.layout('Payment Not Confirmed', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendPaymentRejected failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
    * Told to a parent when the academy suspends the player's spot.
    *
    * The wording deliberately stays neutral and points them at a conversation

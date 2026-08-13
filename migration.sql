@@ -142,3 +142,16 @@ CREATE TABLE IF NOT EXISTS "academy_settings" (
 -- A walk-in signing up at the field often has no date of birth on hand, so it
 -- must be optional. Existing rows are untouched.
 ALTER TABLE "users" ALTER COLUMN "dateOfBirth" DROP NOT NULL;
+
+-- Round 7 — shorter registration form, email-only communication
+-- Medical / allergy information collected at sign-up (optional but important)
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "medicalNotes" text NULL;
+-- The player photo is now optional, and government ID is no longer collected
+ALTER TABLE "users" ALTER COLUMN "photoUrl" DROP NOT NULL;
+ALTER TABLE "users" ALTER COLUMN "NationalIdCard" DROP NOT NULL;
+-- Address details are optional for players added by an admin
+ALTER TABLE "users" ALTER COLUMN "address" DROP NOT NULL;
+ALTER TABLE "users" ALTER COLUMN "city" DROP NOT NULL;
+ALTER TABLE "users" ALTER COLUMN "postalCode" DROP NOT NULL;
+ALTER TABLE "users" ALTER COLUMN "height" DROP NOT NULL;
+ALTER TABLE "users" ALTER COLUMN "weight" DROP NOT NULL;

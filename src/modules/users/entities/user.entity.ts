@@ -78,10 +78,16 @@ export class User {
   })
   experienceLevel: ExperienceLevel;
 
-  @Column({ nullable: false })
+  // Optional: parents can finish signing up without a photo and add one later.
+  @Column({ nullable: true })
   photoUrl: string;
 
-  @Column({ nullable: false })
+  /**
+   * No longer collected. The academy stopped asking families to upload
+   * government ID — it is sensitive data with no operational use here. The
+   * column stays nullable so existing records are untouched.
+   */
+  @Column({ nullable: true })
   NationalIdCard: string;
 
   @Column({
@@ -165,6 +171,13 @@ export class User {
   /** 'attending' | 'irregular' | 'not_attending' */
   @Column({ type: 'varchar', default: 'attending' })
   attendanceStatus: string;
+
+  /**
+   * Allergies, asthma, medication — anything a coach must know on the field.
+   * Optional, but shown prominently to admins when present.
+   */
+  @Column({ nullable: true, type: 'text' })
+  medicalNotes: string | null;
 
   @Column({ nullable: true, type: 'timestamp' })
   holdStartedAt: Date | null;

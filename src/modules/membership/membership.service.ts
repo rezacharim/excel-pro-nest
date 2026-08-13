@@ -53,6 +53,7 @@ export interface MembershipOverviewRow {
   internalNote: string | null;
   attendanceStatus: string;
   dateOfBirth: string | null;
+  medicalNotes: string | null;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -100,6 +101,7 @@ export class MembershipService {
       internalNote: user.internalNote ?? null,
       attendanceStatus: user.attendanceStatus || 'attending',
       dateOfBirth: user.dateOfBirth ?? null,
+      medicalNotes: user.medicalNotes ?? null,
     };
   }
 
@@ -367,6 +369,7 @@ export class MembershipService {
       // first-time registration fee is implied.
       subscriptionCounter: endDate ? 1 : 0,
       internalNote: dto.internalNote || null,
+      medicalNotes: dto.medicalNotes || null,
       attendanceStatus: 'attending',
       policy: true,
       // Safe defaults for the NOT NULL columns the full sign-up form fills in.
@@ -462,6 +465,9 @@ export class MembershipService {
     }
     if (dto.attendanceStatus !== undefined) {
       user.attendanceStatus = dto.attendanceStatus;
+    }
+    if (dto.medicalNotes !== undefined) {
+      user.medicalNotes = dto.medicalNotes || null;
     }
     const saved = await this.userRepository.save(user);
     return this.toOverviewRow(saved);
