@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -26,6 +27,9 @@ import {
   RecordPaymentDto,
   SuspendMembershipDto,
   UpdatePlayerNotesDto,
+  SetRenewalDateDto,
+  BulkActionDto,
+  QuickAddPlayerDto,
 } from './dto/membership.dto';
 
 export interface MembershipOverviewRow {
@@ -236,6 +240,157 @@ export class MembershipService {
   }
 
   /**
+   * Correct the date a membership runs to.
+   *
+   * Needed because plenty of families pay by cash or e-transfer outside the
+   * dashboard — this is how an admin says "actually, they are paid up to
+   * October 15" without inventing a payment.
+   */
+  async setRenewalDate(
+    userId: number,
+    dto: SetRenewalDateDto,
+  ): Promise<MembershipOverviewRow> {
+    const user = await this.getUserOrFail(userId);
+    const date = new Date(dto.date);
+    if (isNaN(date.getTime())) {
+      throw new BadRequestException('Invalid date');
+    }
+
+    user.currentSubscriptionEndDate = date;
+    // A corrected date that is still in the future means they are paid up, so
+    // clear an unpaid-fee suspension and stop the reminder chase.
+    if (date > new Date()) {
+      if (user.suspensionReason === 'late_payment') {
+        user.membershipStatus = 'active';
+        user.suspendedAt = null;
+        user.suspensionReason = null;
+        user.suspensionNote = null;
+      }
+      user.remindersSent = 0;
+      user.lastReminderAt = null;
+    }
+    if (dto.note) {
+      user.internalNote = user.internalNote
+        ? `${user.internalNote}\n${dto.note}`
+        : dto.note;
+    }
+
+    const saved = await this.userRepository.save(user);
+    return this.toOverviewRow(saved);
+  }
+
+  /**
+   * Apply one action to many players — used mainly to clear out families who
+   * left the academy long ago and were never marked as such.
+   */
+  async bulkAction(dto: BulkActionDto): Promise<{
+    updated: number;
+    failed: { userId: number; reason: string }[];
+  }> {
+    const failed: { userId: number; reason: string }[] = [];
+    let updated = 0;
+
+    for (const userId of dto.userIds) {
+      try {
+        switch (dto.action) {
+          case 'stop':
+            await this.stop(userId);
+            break;
+          case 'reactivate':
+            await this.reactivate(userId);
+            break;
+          case 'suspend':
+            await this.suspend(userId, {
+              reason: dto.reason || 'other',
+              note: dto.note,
+              // Bulk suspensions are housekeeping, so parents are not emailed
+              // unless the admin does it deliberately one at a time.
+              notifyParent: false,
+            });
+            break;
+          case 'set-plan':
+            if (!dto.plan) throw new Error('No program given');
+            await this.setPlan(userId, dto.plan);
+            break;
+          default:
+            throw new Error(`Unknown action ${dto.action}`);
+        }
+        updated += 1;
+      } catch (error) {
+        failed.push({ userId, reason: error.message || 'Failed' });
+      }
+    }
+
+    return { updated, failed };
+  }
+
+  /**
+   * Add a player by hand from the dashboard — for walk-ins and for members
+   * who joined before the website existed. Only the handful of fields the
+   * academy actually needs are asked for; the rest get safe defaults.
+   */
+  async quickAddPlayer(dto: QuickAddPlayerDto): Promise<MembershipOverviewRow> {
+    const phone = this.normalizePhone(dto.phone_number);
+    const email = (dto.email || '').trim().toLowerCase();
+
+    // Same-name-and-phone means this is a duplicate; siblings share a phone
+    // but have different names, so both parts must match.
+    const existing = await this.userRepository
+      .createQueryBuilder('u')
+      .where('u.phone_number = :phone AND LOWER(u.fullname) = :name', {
+        phone,
+        name: dto.fullname.trim().toLowerCase(),
+      })
+      .getOne();
+    if (existing) {
+      throw new ConflictException(
+        `${dto.fullname} is already in the system with that phone number.`,
+      );
+    }
+
+    const endDate = dto.currentSubscriptionEndDate
+      ? new Date(dto.currentSubscriptionEndDate)
+      : null;
+
+    const player = this.userRepository.create({
+      fullname: dto.fullname.trim(),
+      parent_name: dto.parent_name.trim(),
+      phone_number: phone,
+      email,
+      activePlan: dto.activePlan,
+      currentSubscriptionEndDate:
+        endDate && !isNaN(endDate.getTime()) ? endDate : null,
+      dateOfBirth: dto.dateOfBirth || null,
+      gender: this.mapGender(dto.gender),
+      membershipStatus: 'active',
+      // They are an existing member being recorded, not a new sign-up, so no
+      // first-time registration fee is implied.
+      subscriptionCounter: endDate ? 1 : 0,
+      internalNote: dto.internalNote || null,
+      attendanceStatus: 'attending',
+      policy: true,
+      // Safe defaults for the NOT NULL columns the full sign-up form fills in.
+      address: '',
+      city: '',
+      postalCode: '',
+      emergencyContactName: dto.parent_name.trim(),
+      emergencyPhone: phone,
+      height: 0,
+      weight: 0,
+      experienceLevel: ExperienceLevel.BEGINNER,
+      tShirtSize: TShirtSize.YM,
+      shortSize: TShirtSize.YM,
+      jacketSize: TShirtSize.YM,
+      pantsSize: TShirtSize.YM,
+      photoUrl: MembershipService.IMPORT_DEFAULT_IMAGE,
+      NationalIdCard: MembershipService.IMPORT_DEFAULT_IMAGE,
+    } as Partial<User>);
+
+    const saved = await this.userRepository.save(player);
+    return this.toOverviewRow(saved);
+  }
+
+  /**
    * Suspend an account. Unlike "stop" (the family left the academy) a
    * suspension is a temporary block the academy applies — unpaid fees,
    * discipline, missing paperwork — and it keeps the reason on record.
@@ -381,10 +536,18 @@ export class MembershipService {
       return this.toOverviewRow(user);
     }
 
-    // New end date = max(now, currentSubscriptionEndDate) + `months` months
-    const base =
-      user.currentSubscriptionEndDate &&
-      new Date(user.currentSubscriptionEndDate) > now
+    // A back-dated entry (money taken weeks ago by cash) should count in the
+    // month it was actually received, not today.
+    const paidAt = dto.paidAt ? new Date(dto.paidAt) : now;
+    const paidAtValid = !isNaN(paidAt.getTime()) ? paidAt : now;
+
+    // Normally a renewal extends from the current end date so early payers
+    // never lose paid days. When catching up on old cash payments the admin
+    // can instead start the period at the payment date.
+    const base = dto.startFromPaymentDate
+      ? new Date(paidAtValid)
+      : user.currentSubscriptionEndDate &&
+          new Date(user.currentSubscriptionEndDate) > now
         ? new Date(user.currentSubscriptionEndDate)
         : new Date(now);
     const newEnd = new Date(base);
@@ -403,7 +566,15 @@ export class MembershipService {
       isFirstTimePayment: (user.subscriptionCounter ?? 0) === 0,
       subscriptionEndDate: newEnd,
     });
-    await this.paymentRepository.save(payment);
+    const savedPayment = await this.paymentRepository.save(payment);
+
+    // createdAt is generated by the database, so a back-date has to be applied
+    // afterwards for the Money screen and receipts to show the real month.
+    if (dto.paidAt && !isNaN(paidAtValid.getTime())) {
+      await this.paymentRepository.update(savedPayment.id, {
+        createdAt: paidAtValid,
+      });
+    }
 
     user.currentSubscriptionEndDate = newEnd;
     user.subscriptionCounter = (user.subscriptionCounter ?? 0) + 1;
@@ -411,6 +582,14 @@ export class MembershipService {
     user.holdStartedAt = null;
     user.holdResumeAt = null;
     user.holdNote = null;
+    // Money in clears an unpaid-fee suspension and resets the chase counters.
+    if (user.suspensionReason === 'late_payment') {
+      user.suspendedAt = null;
+      user.suspensionReason = null;
+      user.suspensionNote = null;
+    }
+    user.remindersSent = 0;
+    user.lastReminderAt = null;
 
     const saved = await this.userRepository.save(user);
 

@@ -15,6 +15,8 @@ import {
 } from 'typeorm';
 import { Transfer } from './entities/transfer.entity';
 import { User } from '../users/entities/user.entity';
+import { Payment } from '../payment/entities/payment.entity';
+import { PaymentStatus } from '../payment/entities/enums/payment-status.enum';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { TransferStatus } from './entities/enums/transfer-status.enum';
 import { v4 as uuidv4 } from 'uuid';
@@ -31,6 +33,8 @@ export class TransferService {
     private transferRepository: Repository<Transfer>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Payment)
+    private paymentRepository: Repository<Payment>,
     private notificationsService: NotificationsService,
     private mailService: MailService,
     private membershipService: MembershipService,
@@ -116,13 +120,17 @@ export class TransferService {
 
     const savedTransfer = await this.transferRepository.save(transfer);
 
-    // Send SMS notification with instructions
-    await this.notificationsService.sendTransferInstructions(
-      user.phone_number, // Using phone number instead of email
-      savedTransfer.token,
-      savedTransfer.amount,
-      savedTransfer.plan,
-    );
+    // Best-effort SMS: a dead SMS provider must not block a registration.
+    try {
+      await this.notificationsService.sendTransferInstructions(
+        user.phone_number,
+        savedTransfer.token,
+        savedTransfer.amount,
+        savedTransfer.plan,
+      );
+    } catch (error) {
+      console.error('❌ Transfer instructions SMS failed (ignored) –', error.message);
+    }
 
     return savedTransfer;
   }
@@ -173,13 +181,17 @@ export class TransferService {
 
     const savedTransfer = await this.transferRepository.save(transfer);
 
-    // Notify admins about new payment confirmation via SMS
-    await this.notificationsService.notifyAdminsAboutPayment(
-      savedTransfer.id as number,
-      savedTransfer.user.fullname,
-      savedTransfer.amount,
-      savedTransfer.plan,
-    );
+    // Best-effort admin SMS; the parent's confirmation must always succeed.
+    try {
+      await this.notificationsService.notifyAdminsAboutPayment(
+        savedTransfer.id as number,
+        savedTransfer.user.fullname,
+        Number(savedTransfer.amount),
+        savedTransfer.plan,
+      );
+    } catch (error) {
+      console.error('❌ Admin payment SMS failed (ignored) –', error.message);
+    }
 
     return savedTransfer;
   }
@@ -217,12 +229,16 @@ export class TransferService {
     // Handle rejection
     if (!isApproved) {
       transfer.status = TransferStatus.REJECTED;
-      await this.notificationsService.sendPaymentRejectionNotification(
-        transfer.user.phone_number,
-        transfer.plan,
-        transfer.amount,
-        notes || 'Payment could not be verified',
-      );
+      try {
+        await this.notificationsService.sendPaymentRejectionNotification(
+          transfer.user.phone_number,
+          transfer.plan,
+          Number(transfer.amount),
+          notes || 'Payment could not be verified',
+        );
+      } catch (error) {
+        console.error('❌ Rejection SMS failed (ignored) –', error.message);
+      }
 
       if (transfer.isFirstTimePayment && transfer.user.isTemporary) {
         try {
@@ -266,20 +282,74 @@ export class TransferService {
       holdStartedAt: null,
       holdResumeAt: null,
       holdNote: null,
+      // A fresh payment clears any unpaid-fee suspension and the chase counters.
+      suspendedAt: null,
+      suspensionReason: null,
+      suspensionNote: null,
+      remindersSent: 0,
+      lastReminderAt: null,
     });
-
-    await this.notificationsService.sendPaymentApprovalNotification(
-      transfer.user.phone_number,
-      transfer.plan,
-      transfer.amount,
-      endDate,
-    );
 
     transfer.verifiedByAdmin = true;
     transfer.adminNotes = notes;
     transfer.verifiedAt = new Date();
     transfer.expiryDate = null; // Clear expiry date on approval
-    return this.transferRepository.save(transfer);
+
+    // Save the verified transfer BEFORE any notification. Previously an SMS
+    // failure threw here, leaving the membership extended but the transfer
+    // still "pending" — so every retry of Approve added another 2 months.
+    const savedTransfer = await this.transferRepository.save(transfer);
+
+    // Record the money so it appears on the Money screen, in the admin's
+    // reports and in the parent's receipts. Without this, e-transfers approved
+    // on this screen were invisible to the accounting side of the dashboard.
+    try {
+      const payment = this.paymentRepository.create({
+        amount: Number(transfer.amount),
+        currency: 'cad',
+        status: PaymentStatus.ACTIVE,
+        plan: transfer.plan,
+        method: 'etransfer',
+        type: 'membership',
+        periodLabel: null,
+        note: notes || 'Approved from Payments screen',
+        userId: user.id,
+        isFirstTimePayment: transfer.isFirstTimePayment,
+        subscriptionEndDate: endDate,
+      });
+      await this.paymentRepository.save(payment);
+    } catch (error) {
+      console.error('❌ Could not record payment for transfer –', error.message);
+    }
+
+    // Notifications are best-effort: the SMS provider or SMTP being down must
+    // never fail an approval the admin already made.
+    try {
+      await this.notificationsService.sendPaymentApprovalNotification(
+        transfer.user.phone_number,
+        transfer.plan,
+        Number(transfer.amount),
+        endDate,
+      );
+    } catch (error) {
+      console.error('❌ Approval SMS failed (ignored) –', error.message);
+    }
+
+    try {
+      if (user.email) {
+        await this.mailService.sendPaymentReceived(
+          user.email,
+          user.fullname,
+          Number(transfer.amount),
+          endDate,
+          { type: 'membership', periodLabel: null },
+        );
+      }
+    } catch (error) {
+      console.error('❌ Approval email failed (ignored) –', error.message);
+    }
+
+    return savedTransfer;
   }
 
   // Get user's transfers

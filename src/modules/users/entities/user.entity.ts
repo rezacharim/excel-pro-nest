@@ -22,7 +22,9 @@ export class User {
   @Column({ type: 'text' })
   fullname: string;
 
-  @Column()
+  // Optional: a walk-in added at the field may not have a date of birth to
+  // hand. The full online registration form still requires it.
+  @Column({ nullable: true })
   dateOfBirth: string;
 
   @Column()

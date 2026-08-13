@@ -137,3 +137,8 @@ CREATE TABLE IF NOT EXISTS "academy_settings" (
   "value" text NULL,
   "updatedAt" timestamp NOT NULL DEFAULT now()
 );
+
+-- Round 6 — quick-add players from the dashboard
+-- A walk-in signing up at the field often has no date of birth on hand, so it
+-- must be optional. Existing rows are untouched.
+ALTER TABLE "users" ALTER COLUMN "dateOfBirth" DROP NOT NULL;

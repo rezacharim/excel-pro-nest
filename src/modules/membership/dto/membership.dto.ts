@@ -42,6 +42,105 @@ export class ExtendMembershipDto {
   note?: string;
 }
 
+export class SetRenewalDateDto {
+  @ApiProperty({
+    description:
+      'The date this membership is actually paid up to. Used to correct records for payments taken outside the dashboard.',
+    example: '2026-10-15',
+  })
+  @IsISO8601()
+  date: string;
+
+  @ApiPropertyOptional({ description: 'Internal note about the correction' })
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+/** Actions that can be applied to many players at once. */
+export const BULK_ACTIONS = [
+  'stop',
+  'reactivate',
+  'suspend',
+  'set-plan',
+] as const;
+
+export class BulkActionDto {
+  @ApiProperty({ description: 'Players to apply the action to', type: [Number] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  userIds: number[];
+
+  @ApiProperty({ enum: BULK_ACTIONS })
+  @IsIn(BULK_ACTIONS as unknown as string[])
+  action: string;
+
+  @ApiPropertyOptional({
+    description: 'Suspension reason (required when action is suspend)',
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @ApiPropertyOptional({ description: 'Program, when action is set-plan' })
+  @IsOptional()
+  @IsIn(['U5_U8', 'U9_U12', 'U13_U14', 'U15_U18'])
+  plan?: string;
+
+  @ApiPropertyOptional({ description: 'Internal note stored on each player' })
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+export class QuickAddPlayerDto {
+  @ApiProperty({ example: 'Sam Ahmadi' })
+  @IsString()
+  fullname: string;
+
+  @ApiProperty({ example: 'Nina Ahmadi' })
+  @IsString()
+  parent_name: string;
+
+  @ApiProperty({ example: '4165551234' })
+  @IsString()
+  phone_number: string;
+
+  @ApiPropertyOptional({ example: 'parent@example.com' })
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @ApiProperty({ enum: ['U5_U8', 'U9_U12', 'U13_U14', 'U15_U18'] })
+  @IsIn(['U5_U8', 'U9_U12', 'U13_U14', 'U15_U18'])
+  activePlan: string;
+
+  @ApiPropertyOptional({
+    description: 'Date the membership is paid up to',
+    example: '2026-10-15',
+  })
+  @IsOptional()
+  @IsISO8601()
+  currentSubscriptionEndDate?: string;
+
+  @ApiPropertyOptional({ example: '2015-04-20' })
+  @IsOptional()
+  @IsISO8601()
+  dateOfBirth?: string;
+
+  @ApiPropertyOptional({ enum: ['Male', 'Female', 'Prefer not to say'] })
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @ApiPropertyOptional({ description: 'Private note about the player' })
+  @IsOptional()
+  @IsString()
+  internalNote?: string;
+}
+
 /** Why an account was suspended. Shown to admins; only some are emailed. */
 export const SUSPENSION_REASONS = [
   'late_payment',
@@ -153,6 +252,23 @@ export class RecordPaymentDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'The date the money was actually received. Set this when entering a payment that was taken earlier by cash or e-transfer, so it lands in the right month on the Money screen. Defaults to today.',
+    example: '2026-06-01',
+  })
+  @IsOptional()
+  @IsISO8601()
+  paidAt?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Start the new membership period from the payment date rather than extending the current end date. Use for back-dated catch-up entries.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  startFromPaymentDate?: boolean;
 }
 
 /**

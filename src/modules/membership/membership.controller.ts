@@ -31,6 +31,9 @@ import {
   SetPlanDto,
   SuspendMembershipDto,
   UpdatePlayerNotesDto,
+  SetRenewalDateDto,
+  BulkActionDto,
+  QuickAddPlayerDto,
 } from './dto/membership.dto';
 
 @ApiTags('Membership')
@@ -126,6 +129,38 @@ export class MembershipController {
   @ApiParam({ name: 'userId', type: Number })
   reactivate(@Param('userId', ParseIntPipe) userId: number) {
     return this.membershipService.reactivate(userId);
+  }
+
+  @Post('players')
+  @ApiOperation({
+    summary: 'Add a player by hand (walk-ins, or members who joined pre-website)',
+  })
+  @ApiBody({ type: QuickAddPlayerDto })
+  quickAddPlayer(@Body() dto: QuickAddPlayerDto) {
+    return this.membershipService.quickAddPlayer(dto);
+  }
+
+  @Post('bulk')
+  @ApiOperation({
+    summary: 'Apply one action (stop / reactivate / suspend / set-plan) to many players',
+  })
+  @ApiBody({ type: BulkActionDto })
+  bulkAction(@Body() dto: BulkActionDto) {
+    return this.membershipService.bulkAction(dto);
+  }
+
+  @Post(':userId/set-renewal-date')
+  @ApiOperation({
+    summary:
+      'Set the date a membership is paid up to (for payments taken outside the dashboard)',
+  })
+  @ApiParam({ name: 'userId', type: Number })
+  @ApiBody({ type: SetRenewalDateDto })
+  setRenewalDate(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: SetRenewalDateDto,
+  ) {
+    return this.membershipService.setRenewalDate(userId, dto);
   }
 
   @Post(':userId/suspend')
