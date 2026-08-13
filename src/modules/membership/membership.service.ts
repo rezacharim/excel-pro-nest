@@ -30,6 +30,7 @@ import {
   SetRenewalDateDto,
   BulkActionDto,
   QuickAddPlayerDto,
+  InviteParentsDto,
 } from './dto/membership.dto';
 
 export interface MembershipOverviewRow {
@@ -41,6 +42,7 @@ export interface MembershipOverviewRow {
   activePlan: string | null;
   membershipStatus: string;
   currentSubscriptionEndDate: Date | null;
+  currentSubscriptionStartDate: Date | null;
   daysRemaining: number | null;
   overdue: boolean;
   holdResumeAt: Date | null;
@@ -54,6 +56,7 @@ export interface MembershipOverviewRow {
   attendanceStatus: string;
   dateOfBirth: string | null;
   medicalNotes: string | null;
+  invitedAt: Date | null;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -89,6 +92,7 @@ export class MembershipService {
       activePlan: user.activePlan ?? null,
       membershipStatus: user.membershipStatus || 'active',
       currentSubscriptionEndDate: user.currentSubscriptionEndDate ?? null,
+      currentSubscriptionStartDate: user.currentSubscriptionStartDate ?? null,
       daysRemaining,
       overdue,
       holdResumeAt: user.holdResumeAt ?? null,
@@ -102,6 +106,7 @@ export class MembershipService {
       attendanceStatus: user.attendanceStatus || 'attending',
       dateOfBirth: user.dateOfBirth ?? null,
       medicalNotes: user.medicalNotes ?? null,
+      invitedAt: user.invitedAt ?? null,
     };
   }
 
@@ -259,6 +264,20 @@ export class MembershipService {
     }
 
     user.currentSubscriptionEndDate = date;
+
+    if (dto.startDate) {
+      const start = new Date(dto.startDate);
+      if (isNaN(start.getTime())) {
+        throw new BadRequestException('Invalid start date');
+      }
+      if (start > date) {
+        throw new BadRequestException(
+          'The period cannot start after it ends. Please check the dates.',
+        );
+      }
+      user.currentSubscriptionStartDate = start;
+    }
+
     // A corrected date that is still in the future means they are paid up, so
     // clear an unpaid-fee suspension and stop the reminder chase.
     if (date > new Date()) {
@@ -279,6 +298,66 @@ export class MembershipService {
 
     const saved = await this.userRepository.save(user);
     return this.toOverviewRow(saved);
+  }
+
+  /**
+   * Email families an invitation to start using the website.
+   *
+   * Skips players with no email, and (unless `resend` is set) anyone already
+   * invited — sending the same family the same email twice looks careless.
+   */
+  async inviteParents(dto: InviteParentsDto): Promise<{
+    sent: number;
+    skipped: { fullname: string; reason: string }[];
+    failed: { fullname: string; reason: string }[];
+  }> {
+    const skipped: { fullname: string; reason: string }[] = [];
+    const failed: { fullname: string; reason: string }[] = [];
+    let sent = 0;
+
+    for (const userId of dto.userIds) {
+      let user: User;
+      try {
+        user = await this.getUserOrFail(userId);
+      } catch {
+        failed.push({ fullname: `#${userId}`, reason: 'Player not found' });
+        continue;
+      }
+
+      if (!user.email) {
+        skipped.push({ fullname: user.fullname, reason: 'No email address' });
+        continue;
+      }
+      if (user.invitedAt && !dto.resend) {
+        skipped.push({
+          fullname: user.fullname,
+          reason: `Already invited ${new Date(user.invitedAt).toDateString()}`,
+        });
+        continue;
+      }
+
+      const ok = await this.mailService.sendParentInvitation(
+        user.email,
+        user.fullname,
+        user.parent_name || null,
+        user.currentSubscriptionEndDate ?? null,
+      );
+
+      if (ok) {
+        user.invitedAt = new Date();
+        await this.userRepository.save(user);
+        sent += 1;
+        // A small gap keeps the mail provider happy on large sends.
+        await new Promise((r) => setTimeout(r, 300));
+      } else {
+        failed.push({
+          fullname: user.fullname,
+          reason: 'Email could not be sent',
+        });
+      }
+    }
+
+    return { sent, skipped, failed };
   }
 
   /**
@@ -583,6 +662,7 @@ export class MembershipService {
     }
 
     user.currentSubscriptionEndDate = newEnd;
+    user.currentSubscriptionStartDate = new Date(base);
     user.subscriptionCounter = (user.subscriptionCounter ?? 0) + 1;
     user.membershipStatus = 'active';
     user.holdStartedAt = null;

@@ -51,6 +51,15 @@ export class SetRenewalDateDto {
   @IsISO8601()
   date: string;
 
+  @ApiPropertyOptional({
+    description:
+      'The date the current paid period started. Optional — set it when correcting a full period.',
+    example: '2026-08-15',
+  })
+  @IsOptional()
+  @IsISO8601()
+  startDate?: string;
+
   @ApiPropertyOptional({ description: 'Internal note about the correction' })
   @IsOptional()
   @IsString()
@@ -146,6 +155,23 @@ export class QuickAddPlayerDto {
   @IsOptional()
   @IsString()
   medicalNotes?: string;
+}
+
+export class InviteParentsDto {
+  @ApiProperty({ description: 'Players whose parents should be invited', type: [Number] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  userIds: number[];
+
+  @ApiPropertyOptional({
+    description:
+      'Send again to families already invited. Off by default so nobody is emailed twice by accident.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  resend?: boolean;
 }
 
 /** Why an account was suspended. Shown to admins; only some are emailed. */

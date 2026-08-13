@@ -34,6 +34,7 @@ import {
   SetRenewalDateDto,
   BulkActionDto,
   QuickAddPlayerDto,
+  InviteParentsDto,
 } from './dto/membership.dto';
 
 @ApiTags('Membership')
@@ -138,6 +139,15 @@ export class MembershipController {
   @ApiBody({ type: QuickAddPlayerDto })
   quickAddPlayer(@Body() dto: QuickAddPlayerDto) {
     return this.membershipService.quickAddPlayer(dto);
+  }
+
+  @Post('invite')
+  @ApiOperation({
+    summary: 'Email families an invitation to start using their online account',
+  })
+  @ApiBody({ type: InviteParentsDto })
+  inviteParents(@Body() dto: InviteParentsDto) {
+    return this.membershipService.inviteParents(dto);
   }
 
   @Post('bulk')

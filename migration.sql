@@ -155,3 +155,7 @@ ALTER TABLE "users" ALTER COLUMN "city" DROP NOT NULL;
 ALTER TABLE "users" ALTER COLUMN "postalCode" DROP NOT NULL;
 ALTER TABLE "users" ALTER COLUMN "height" DROP NOT NULL;
 ALTER TABLE "users" ALTER COLUMN "weight" DROP NOT NULL;
+
+-- Round 8 — editable membership periods and parent invitations
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "currentSubscriptionStartDate" timestamp NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "invitedAt" timestamp NULL;

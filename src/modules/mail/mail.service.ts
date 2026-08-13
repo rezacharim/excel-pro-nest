@@ -254,6 +254,56 @@ export class MailService {
   }
 
   /**
+   * Invitation to an existing family to start using the website.
+   *
+   * Written for parents who have been with the academy for years and have
+   * never seen an online account: it explains what they get, and that there
+   * is no password to remember.
+   */
+  async sendParentInvitation(
+    to: string,
+    playerName: string,
+    parentName: string | null,
+    renewalDate: Date | null,
+  ): Promise<boolean> {
+    try {
+      const greeting = parentName ? `Hi ${parentName},` : 'Hi,';
+      const renewalLine = renewalDate
+        ? `<p>Right now our records show <strong>${playerName}</strong>'s membership running to <strong>${this.formatDate(renewalDate)}</strong>. If that does not look right, just reply to this email and we will fix it.</p>`
+        : `<p>Once you sign in you will see <strong>${playerName}</strong>'s membership details. If anything looks wrong, reply to this email and we will fix it.</p>`;
+
+      const body = `
+        ${this.heading('Your Excel Pro account is ready')}
+        <p>${greeting}</p>
+        <p>We have moved Excel Pro Soccer Academy onto a proper online system, and your family already has an account waiting — nothing to set up.</p>
+        <p>With it you can:</p>
+        <ul style="padding-left:20px;color:#333333;line-height:1.9;">
+          <li>See when ${playerName}'s membership renews</li>
+          <li>Renew and pay by e-transfer in a couple of taps</li>
+          <li>Download receipts and a yearly statement for your records</li>
+          <li>Ask us to pause the membership for a holiday</li>
+          <li>Add another child without filling in your details again</li>
+        </ul>
+        ${renewalLine}
+        <div style="text-align:center;margin:28px 0;">
+          <a href="https://www.excelproso.com/account" style="display:inline-block;background-color:${BRAND_RED};color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 32px;border-radius:6px;font-size:16px;">Open my account</a>
+        </div>
+        <p style="color:#555555;font-size:14px;text-align:center;">
+          There is <strong>no password</strong>. Enter this email address and we send you a 6-digit code to sign in.
+        </p>
+        <p>If you have any trouble at all, just reply to this email — we are happy to walk you through it.</p>`;
+      return await this.send(
+        to,
+        `Your Excel Pro account is ready - ${playerName}`,
+        this.layout('Your Account Is Ready', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendParentInvitation failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
    * Sent the moment a parent starts an e-transfer payment, so the details are
    * in their inbox while they are in their banking app. This replaces the old
    * SMS with the same information.

@@ -133,6 +133,18 @@ export class User {
   @Column({ nullable: true, type: 'timestamp' })
   currentSubscriptionEndDate: Date;
 
+  /**
+   * When the current paid period began. Lets an admin state a full period
+   * ("paid from 1 June to 1 August") rather than only an end date, which
+   * matters when catching up on records kept outside the dashboard.
+   */
+  @Column({ nullable: true, type: 'timestamp' })
+  currentSubscriptionStartDate: Date | null;
+
+  /** When this family was last emailed an invitation to use the website. */
+  @Column({ nullable: true, type: 'timestamp' })
+  invitedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
