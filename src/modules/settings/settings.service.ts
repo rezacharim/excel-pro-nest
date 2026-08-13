@@ -16,6 +16,15 @@ export interface AcademySettings {
   autoSuspendEnabled: boolean;
   /** Days overdue before an unpaid account is auto-suspended */
   autoSuspendDays: number;
+  /**
+   * Master switch for the automatic emails that go OUT to families on a
+   * schedule (renewal reminders and overdue notices).
+   *
+   * It does NOT affect emails a person asked for: sign-in codes, payment
+   * instructions, receipts, or a reminder an admin sends by hand from the
+   * Collections screen. Those must keep working at all times.
+   */
+  remindersPaused: boolean;
 }
 
 export const DEFAULT_SETTINGS: AcademySettings = {
@@ -26,6 +35,9 @@ export const DEFAULT_SETTINGS: AcademySettings = {
   // Off by default: the academy chases by email and decides suspensions itself.
   autoSuspendEnabled: false,
   autoSuspendDays: 7,
+  // Starts PAUSED so no family is emailed automatically while the academy is
+  // still correcting old records. The owner switches it on when ready.
+  remindersPaused: true,
 };
 
 @Injectable()
@@ -59,6 +71,9 @@ export class SettingsService {
           (stored.get('autoSuspendEnabled') ??
             String(DEFAULT_SETTINGS.autoSuspendEnabled)) === 'true',
         autoSuspendDays: num('autoSuspendDays', DEFAULT_SETTINGS.autoSuspendDays),
+        remindersPaused:
+          (stored.get('remindersPaused') ??
+            String(DEFAULT_SETTINGS.remindersPaused)) === 'true',
       };
     } catch (error) {
       // Table missing (migration not run yet) must not break the API.

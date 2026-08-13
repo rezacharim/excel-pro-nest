@@ -450,6 +450,18 @@ export class TransferService {
       console.error('❌ Error processing auto-resumes –', err.message);
     }
 
+    // Automatic emails to families can be paused while records are being
+    // corrected, so nobody is chased over a date that is simply wrong.
+    let remindersPaused = false;
+    try {
+      remindersPaused = (await this.settingsService.getAll()).remindersPaused;
+    } catch (err) {
+      console.error('❌ Could not read reminder settings –', err.message);
+    }
+    if (remindersPaused) {
+      console.log('⏸ Automatic parent reminders are paused — skipping.');
+    }
+
     // Users with subscriptions expiring in 2 days (active memberships only)
     const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
     const oneDayWindowStart = new Date(
@@ -464,7 +476,7 @@ export class TransferService {
       },
     });
 
-    for (const user of usersExpiringSoon) {
+    for (const user of remindersPaused ? [] : usersExpiringSoon) {
 
       // Email alongside SMS (best-effort)
       try {
@@ -500,7 +512,7 @@ export class TransferService {
       },
     });
 
-    for (const user of usersWithExpiredSubscriptions) {
+    for (const user of remindersPaused ? [] : usersWithExpiredSubscriptions) {
       const daysSinceExpiry = Math.floor(
         (now.getTime() - user.currentSubscriptionEndDate.getTime()) /
           (24 * 60 * 60 * 1000),

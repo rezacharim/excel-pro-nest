@@ -21,6 +21,7 @@ export class UpdateSettingsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(30)
   reminderDaysBefore?: number;
   @IsOptional() @IsBoolean() autoSuspendEnabled?: boolean;
+  @IsOptional() @IsBoolean() remindersPaused?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(90)
   autoSuspendDays?: number;
 }
