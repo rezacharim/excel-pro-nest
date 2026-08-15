@@ -272,3 +272,16 @@ SELECT 'Winter League 2026/27', 'U9,U10,U11,U12,U13,U14,U15,U16',
 WHERE NOT EXISTS (
   SELECT 1 FROM "league_season" WHERE "name" = 'Winter League 2026/27'
 );
+
+-- Round 10 — control over how "spots left" is shown, and an explicit
+-- late-fee date.
+-- "18 spots left" tells a family they can safely decide next month, which is
+-- the opposite of what a payment deadline needs. These columns let the number
+-- be withheld until it is genuinely low, without inventing a fake one.
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "capacityOverrides" text NULL;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "spotsDisplay" character varying NOT NULL DEFAULT 'threshold';
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "spotsThreshold" integer NOT NULL DEFAULT 6;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "lateFeeFrom" date NULL;
+
+-- Existing seasons keep behaving as before unless changed.
+UPDATE "league_season" SET "lateFeeFrom" = "firstPaymentDue" WHERE "lateFeeFrom" IS NULL;

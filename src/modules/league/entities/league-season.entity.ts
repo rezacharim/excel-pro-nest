@@ -53,6 +53,16 @@ export class LeagueSeason {
   feeLate: number;
 
   /**
+   * The date the late fee starts applying. Usually the same as
+   * firstPaymentDue, but an academy may hold the normal price until the
+   * second installment date instead — so it is stated explicitly rather than
+   * inferred, because getting it wrong on a public page is a money dispute.
+   */
+  @ApiProperty({ required: false, example: '2026-08-25' })
+  @Column({ type: 'date', nullable: true })
+  lateFeeFrom: string | null;
+
+  /**
    * Optional discounted total for families who pay everything up front.
    * Null disables the option. Paying in full removes an entire round of
    * chasing in September, so it is usually worth a small discount.
@@ -64,6 +74,37 @@ export class LeagueSeason {
   @ApiProperty({ example: 18, description: 'Default roster cap per age group' })
   @Column({ type: 'int', default: 18 })
   capacityPerGroup: number;
+
+  /**
+   * Per-age-group overrides, e.g. 'U9:12,U13:16'. A squad is not always the
+   * same size, and the number shown to parents should be the real target for
+   * that group rather than one blanket figure.
+   */
+  @ApiProperty({ required: false, example: 'U9:12,U16:20' })
+  @Column({ type: 'text', nullable: true })
+  capacityOverrides: string | null;
+
+  /**
+   * How the remaining-spots figure is presented:
+   *
+   *  count     always show the exact number
+   *  threshold show the number only once it is at or below spotsThreshold,
+   *            otherwise a neutral "Spots available" (the default — a big
+   *            number reads as "no rush", which is the opposite of useful)
+   *  status    never a number, just Open / Filling fast / Almost full / Full
+   *  hidden    show nothing; rely on the deadline instead
+   */
+  @ApiProperty({
+    enum: ['count', 'threshold', 'status', 'hidden'],
+    default: 'threshold',
+  })
+  @Column({ type: 'varchar', default: 'threshold' })
+  spotsDisplay: string;
+
+  /** Below or equal to this, the exact number is shown. */
+  @ApiProperty({ example: 6, default: 6 })
+  @Column({ type: 'int', default: 6 })
+  spotsThreshold: number;
 
   /** Shown to parents on the confirmation screen and in the receipt email. */
   @ApiProperty({ required: false })

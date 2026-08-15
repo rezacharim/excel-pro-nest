@@ -90,8 +90,12 @@ export class LeagueService {
       secondPaymentDue: dto.secondPaymentDue ?? null,
       feeTotal: dto.feeTotal ?? 900,
       feeLate: dto.feeLate ?? 1100,
+      lateFeeFrom: dto.lateFeeFrom ?? dto.firstPaymentDue ?? null,
       feePayInFull: dto.feePayInFull ?? null,
       capacityPerGroup: dto.capacityPerGroup ?? 18,
+      capacityOverrides: dto.capacityOverrides ?? null,
+      spotsDisplay: dto.spotsDisplay ?? 'threshold',
+      spotsThreshold: dto.spotsThreshold ?? 6,
       paymentInstructions: dto.paymentInstructions ?? null,
       registrationOpen: dto.registrationOpen ?? true,
       isActive: true,
@@ -133,8 +137,21 @@ export class LeagueService {
       .getRawMany<{ ageGroup: string; taken: string }>();
 
     const taken = new Map(rows.map((r) => [r.ageGroup, Number(r.taken)]));
+    const overrides = this.capacityOverridesOf(season);
+
+    // Real social proof: how many families signed up in the last week. A
+    // number that GROWS motivates; a big "spots left" reads as "no rush".
+    const since = new Date(Date.now() - 7 * 86400000);
+    const recentSignups = await this.registrationRepo
+      .createQueryBuilder('r')
+      .where('r.seasonId = :seasonId', { seasonId: season.id })
+      .andWhere('r.createdAt >= :since', { since })
+      .andWhere("r.teamRole = 'PLAYER'")
+      .getCount();
 
     return {
+      recentSignups,
+      spotsDisplay: season.spotsDisplay,
       id: season.id,
       name: season.name,
       startsOn: season.startsOn,
@@ -142,21 +159,87 @@ export class LeagueService {
       secondPaymentDue: season.secondPaymentDue,
       feeTotal: Number(season.feeTotal),
       feeLate: Number(season.feeLate),
+      lateFeeFrom: season.lateFeeFrom ?? season.firstPaymentDue,
       feePayInFull:
         season.feePayInFull === null ? null : Number(season.feePayInFull),
       registrationOpen: season.registrationOpen,
       isLateNow: this.isLate(season),
       paymentInstructions: season.paymentInstructions,
       ageGroups: groups.map((ageGroup) => {
+        const capacity = overrides.get(ageGroup) ?? season.capacityPerGroup;
         const used = taken.get(ageGroup) ?? 0;
+        const spotsLeft = Math.max(capacity - used, 0);
         return {
           ageGroup,
-          capacity: season.capacityPerGroup,
+          capacity,
           taken: used,
-          spotsLeft: Math.max(season.capacityPerGroup - used, 0),
+          spotsLeft,
+          // The page renders whatever it is handed, so the wording can be
+          // changed from the admin screen without a deploy.
+          ...this.presentSpots(season, capacity, spotsLeft),
         };
       }),
     };
+  }
+
+  private capacityOverridesOf(season: LeagueSeason): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const part of (season.capacityOverrides || '').split(',')) {
+      const [group, value] = part.split(':').map((x) => x.trim());
+      const n = parseInt(value, 10);
+      if (group && !isNaN(n) && n > 0) map.set(group, n);
+    }
+    return map;
+  }
+
+  /**
+   * Turns "spots left" into something a parent acts on.
+   *
+   * The honest problem with a raw count is that "18 spots left" tells a
+   * family they can safely decide next month, which is exactly what an
+   * academy with a payment deadline does not want. The fix is not a made-up
+   * number — parents in the same WhatsApp group compare notes, and a figure
+   * that never moves is worse than no figure. The fix is to say nothing
+   * precise until the number is genuinely low, and to let the deadline do
+   * the work until then.
+   */
+  private presentSpots(
+    season: LeagueSeason,
+    capacity: number,
+    spotsLeft: number,
+  ): { label: string; tone: 'ok' | 'medium' | 'low' | 'full'; show: boolean } {
+    if (spotsLeft <= 0) {
+      return { label: 'Full - waiting list', tone: 'full', show: true };
+    }
+
+    const filled = capacity > 0 ? (capacity - spotsLeft) / capacity : 0;
+    const plural = spotsLeft === 1 ? '' : 's';
+    const exact = `${spotsLeft} spot${plural} left`;
+
+    switch (season.spotsDisplay) {
+      case 'hidden':
+        return { label: '', tone: 'ok', show: false };
+
+      case 'count':
+        return {
+          label: exact,
+          tone: spotsLeft <= season.spotsThreshold ? 'low' : 'ok',
+          show: true,
+        };
+
+      case 'status':
+        if (filled >= 0.8) return { label: 'Almost full', tone: 'low', show: true };
+        if (filled >= 0.5) return { label: 'Filling fast', tone: 'medium', show: true };
+        return { label: 'Open', tone: 'ok', show: true };
+
+      case 'threshold':
+      default:
+        return spotsLeft <= season.spotsThreshold
+          ? { label: exact, tone: 'low', show: true }
+          : filled >= 0.5
+            ? { label: 'Filling fast', tone: 'medium', show: true }
+            : { label: 'Spots available', tone: 'ok', show: true };
+    }
   }
 
   // ------------------------------------------------------------------
@@ -844,8 +927,9 @@ export class LeagueService {
   }
 
   private isLate(season: LeagueSeason): boolean {
-    if (!season.firstPaymentDue) return false;
-    return this.today() > season.firstPaymentDue;
+    const from = season.lateFeeFrom ?? season.firstPaymentDue;
+    if (!from) return false;
+    return this.today() > from;
   }
 
   private normalisePostalCode(value: string): string {

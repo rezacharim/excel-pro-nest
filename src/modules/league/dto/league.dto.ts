@@ -338,6 +338,14 @@ export class CreateSeasonDto {
   @IsNumber()
   feeLate?: number;
 
+  @ApiPropertyOptional({
+    example: '2026-08-25',
+    description: 'Date the late fee starts. Defaults to firstPaymentDue.',
+  })
+  @IsOptional()
+  @IsDateString()
+  lateFeeFrom?: string;
+
   @ApiPropertyOptional({ example: 875 })
   @IsOptional()
   @IsNumber()
@@ -347,6 +355,33 @@ export class CreateSeasonDto {
   @IsOptional()
   @IsInt()
   capacityPerGroup?: number;
+
+  @ApiPropertyOptional({
+    example: 'U9:12,U16:20',
+    description: 'Per-age-group roster caps, comma separated',
+  })
+  @IsOptional()
+  @IsString()
+  capacityOverrides?: string;
+
+  @ApiPropertyOptional({
+    enum: ['count', 'threshold', 'status', 'hidden'],
+    default: 'threshold',
+    description:
+      'How remaining spots are shown to parents. threshold = exact number only once it is low.',
+  })
+  @IsOptional()
+  @IsIn(['count', 'threshold', 'status', 'hidden'])
+  spotsDisplay?: string;
+
+  @ApiPropertyOptional({
+    example: 6,
+    description: 'At or below this many spots, show the exact number',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  spotsThreshold?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
