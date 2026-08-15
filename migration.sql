@@ -159,3 +159,116 @@ ALTER TABLE "users" ALTER COLUMN "weight" DROP NOT NULL;
 -- Round 8 — editable membership periods and parent invitations
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "currentSubscriptionStartDate" timestamp NULL;
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "invitedAt" timestamp NULL;
+
+-- Round 9 — Winter League registration, installments and trials
+-- Matches src/modules/league/entities/*.entity.ts
+-- Safe to re-run: every statement is IF NOT EXISTS / idempotent.
+
+-- One registration window (e.g. "Winter League 2026/27")
+CREATE TABLE IF NOT EXISTS "league_season" (
+  "id" SERIAL PRIMARY KEY,
+  "name" text NOT NULL,
+  "ageGroups" text NOT NULL DEFAULT 'U9,U10,U11,U12,U13,U14,U15,U16',
+  "startsOn" date NULL,
+  "firstPaymentDue" date NULL,
+  "secondPaymentDue" date NULL,
+  "feeTotal" numeric(10,2) NOT NULL DEFAULT 900,
+  "feeLate" numeric(10,2) NOT NULL DEFAULT 1100,
+  "feePayInFull" numeric(10,2) NULL,
+  "capacityPerGroup" integer NOT NULL DEFAULT 18,
+  "paymentInstructions" text NULL,
+  "isActive" boolean NOT NULL DEFAULT true,
+  "registrationOpen" boolean NOT NULL DEFAULT true,
+  "createdAt" timestamp NOT NULL DEFAULT now(),
+  "updatedAt" timestamp NOT NULL DEFAULT now()
+);
+
+-- One player signed up for one season. Personal details are a snapshot: the
+-- roster filed with PISL/YRSL must not change when a parent edits their
+-- address months later.
+CREATE TABLE IF NOT EXISTS "league_registration" (
+  "id" SERIAL PRIMARY KEY,
+  "seasonId" integer NOT NULL,
+  "userId" integer NULL,
+  "ageGroup" character varying NOT NULL,
+  "teamName" character varying NULL,
+  "league" character varying NULL,
+  "teamRole" character varying NOT NULL DEFAULT 'PLAYER',
+  "firstName" character varying NOT NULL,
+  "lastName" character varying NOT NULL,
+  "email" character varying NOT NULL,
+  "dateOfBirth" date NULL,
+  "gender" character varying NOT NULL DEFAULT 'M',
+  "phone" character varying NOT NULL,
+  "address1" text NULL,
+  "city" character varying NULL,
+  "province" character varying NOT NULL DEFAULT 'ON',
+  "postalCode" character varying NULL,
+  "country" character varying NOT NULL DEFAULT 'Canada',
+  "parentName" text NULL,
+  "status" character varying NOT NULL DEFAULT 'pending_payment',
+  "isLate" boolean NOT NULL DEFAULT false,
+  "payInFull" boolean NOT NULL DEFAULT false,
+  "feeTotal" numeric(10,2) NOT NULL DEFAULT 900,
+  "firstAmount" numeric(10,2) NOT NULL DEFAULT 450,
+  "firstDueDate" date NULL,
+  "firstPaidAt" timestamp NULL,
+  "firstPaymentId" integer NULL,
+  "secondAmount" numeric(10,2) NOT NULL DEFAULT 450,
+  "secondDueDate" date NULL,
+  "secondPaidAt" timestamp NULL,
+  "secondPaymentId" integer NULL,
+  "medicalNotes" text NULL,
+  "jerseySize" character varying NULL,
+  "previousClub" character varying NULL,
+  "consentTerms" boolean NOT NULL DEFAULT false,
+  "consentPhoto" boolean NOT NULL DEFAULT false,
+  "adminNote" text NULL,
+  "submittedAt" timestamp NULL,
+  "createdAt" timestamp NOT NULL DEFAULT now(),
+  "updatedAt" timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "IDX_league_reg_season" ON "league_registration" ("seasonId");
+CREATE INDEX IF NOT EXISTS "IDX_league_reg_season_age" ON "league_registration" ("seasonId", "ageGroup");
+CREATE INDEX IF NOT EXISTS "IDX_league_reg_status" ON "league_registration" ("status");
+CREATE INDEX IF NOT EXISTS "IDX_league_reg_user" ON "league_registration" ("userId");
+
+-- Trial requests from players who are not academy members yet. Kept out of
+-- "users" so membership and revenue figures are not distorted by people who
+-- attended once and never joined.
+CREATE TABLE IF NOT EXISTS "trial_booking" (
+  "id" SERIAL PRIMARY KEY,
+  "firstName" character varying NOT NULL,
+  "lastName" character varying NOT NULL,
+  "dateOfBirth" date NULL,
+  "gender" character varying NULL,
+  "ageGroup" character varying NOT NULL,
+  "parentName" character varying NOT NULL,
+  "email" character varying NOT NULL,
+  "phone" character varying NOT NULL,
+  "city" character varying NULL,
+  "previousClub" character varying NULL,
+  "position" character varying NULL,
+  "preferredWhen" character varying NULL,
+  "howHeard" character varying NULL,
+  "scheduledFor" timestamp NULL,
+  "status" character varying NOT NULL DEFAULT 'booked',
+  "coachNotes" text NULL,
+  "convertedUserId" integer NULL,
+  "createdAt" timestamp NOT NULL DEFAULT now(),
+  "updatedAt" timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "IDX_trial_status" ON "trial_booking" ("status");
+
+-- Seed the Winter League 2026/27 season. Fees, dates and the e-transfer note
+-- can all be changed later from the admin screens without a deploy.
+INSERT INTO "league_season"
+  ("name", "ageGroups", "startsOn", "firstPaymentDue", "secondPaymentDue",
+   "feeTotal", "feeLate", "capacityPerGroup", "paymentInstructions")
+SELECT 'Winter League 2026/27', 'U9,U10,U11,U12,U13,U14,U15,U16',
+       DATE '2026-10-15', DATE '2026-08-25', DATE '2026-09-20',
+       900, 1100, 18,
+       'Send your Interac e-Transfer to Excelpro.Etransfer@gmail.com and put the player''s full name and age group in the message.'
+WHERE NOT EXISTS (
+  SELECT 1 FROM "league_season" WHERE "name" = 'Winter League 2026/27'
+);

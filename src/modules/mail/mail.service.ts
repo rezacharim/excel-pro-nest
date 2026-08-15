@@ -694,4 +694,151 @@ export class MailService {
       return false;
     }
   }
+
+  /**
+   * Sent the moment a league registration is submitted.
+   *
+   * This email is the whole reason the academy can stop sending registration
+   * links by hand: it carries the payment instructions, the exact amount and
+   * the deadline, so a parent never has to ask what to do next.
+   */
+  async sendLeagueRegistrationReceived(
+    to: string,
+    playerName: string,
+    details: {
+      seasonName: string;
+      ageGroup: string;
+      waitlisted: boolean;
+      feeTotal: number;
+      firstAmount: number;
+      firstDueDate: string | null;
+      secondAmount: number;
+      secondDueDate: string | null;
+      isLate: boolean;
+      payInFull: boolean;
+    },
+  ): Promise<boolean> {
+    try {
+      const money = (n: number) => `$${Number(n).toFixed(2)} CAD`;
+
+      const scheduleRows = details.payInFull
+        ? `<tr><td style="padding:6px 0;">Full payment</td><td style="padding:6px 0;text-align:right;"><strong>${money(details.firstAmount)}</strong> by ${this.formatDate(details.firstDueDate)}</td></tr>`
+        : `<tr><td style="padding:6px 0;">1st payment</td><td style="padding:6px 0;text-align:right;"><strong>${money(details.firstAmount)}</strong> by ${this.formatDate(details.firstDueDate)}</td></tr>
+           <tr><td style="padding:6px 0;">2nd payment</td><td style="padding:6px 0;text-align:right;"><strong>${money(details.secondAmount)}</strong> by ${this.formatDate(details.secondDueDate)}</td></tr>`;
+
+      const waitlistNote = details.waitlisted
+        ? `<p style="background-color:#fff8e6;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;"><strong>${details.ageGroup} is currently full.</strong> ${playerName} is on the waiting list. Please do not send payment yet &mdash; we will contact you as soon as a spot opens.</p>`
+        : '';
+
+      const lateNote = details.isLate
+        ? `<p style="color:#555555;font-size:14px;">This registration was received after the deadline, so the late registration fee applies.</p>`
+        : '';
+
+      const payBlock = details.waitlisted
+        ? ''
+        : `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;background-color:#fdf1f0;border-left:4px solid ${BRAND_RED};border-radius:4px;">
+          <tr>
+            <td style="padding:16px 20px;font-size:15px;color:#333333;line-height:1.9;">
+              <strong style="color:${BRAND_NAVY};">Send your e-Transfer to:</strong>
+              <a href="mailto:${ETRANSFER_EMAIL}" style="color:${BRAND_RED};font-weight:bold;text-decoration:none;">${ETRANSFER_EMAIL}</a><br />
+              <strong style="color:${BRAND_NAVY};">Amount now:</strong> ${money(details.firstAmount)}<br />
+              <strong style="color:${BRAND_NAVY};">Message:</strong> ${playerName} &ndash; ${details.ageGroup}
+            </td>
+          </tr>
+        </table>
+        <p style="font-size:14px;color:#555555;">Please put the player's name and age group in the transfer message so we can match the payment to the right roster spot.</p>`;
+
+      const body = `
+        ${this.heading('Registration received')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        <p>We have received the registration for <strong>${playerName}</strong> in <strong>${details.ageGroup}</strong> for the <strong>${details.seasonName}</strong>.</p>
+        ${waitlistNote}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;font-size:15px;color:#333333;">
+          ${scheduleRows}
+          <tr><td style="padding:10px 0 0;border-top:1px solid #e5e5e5;">Total</td><td style="padding:10px 0 0;border-top:1px solid #e5e5e5;text-align:right;"><strong>${money(details.feeTotal)}</strong></td></tr>
+        </table>
+        ${lateNote}
+        ${payBlock}
+        <p><strong>Your child's roster spot is confirmed once the first payment is received</strong> &mdash; not when this form is submitted. Spots in each age group are limited.</p>
+        <div style="text-align:center;margin:28px 0;">
+          <a href="https://www.excelproso.com/account" style="display:inline-block;background-color:${BRAND_RED};color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 32px;border-radius:6px;font-size:16px;">View my account</a>
+        </div>
+        <p>Thank you for your continued support of ${ACADEMY_NAME}.</p>`;
+
+      return await this.send(
+        to,
+        `Registration received - ${playerName} (${details.ageGroup}, ${details.seasonName})`,
+        this.layout('Registration received', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendLeagueRegistrationReceived failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /** Sent when a family books a trial from the website. */
+  async sendTrialRequestReceived(
+    to: string,
+    playerName: string,
+    ageGroup: string,
+  ): Promise<boolean> {
+    try {
+      const body = `
+        ${this.heading('Trial request received')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        <p>Thank you for your interest in ${ACADEMY_NAME}. We have received the trial request for <strong>${playerName}</strong> (<strong>${ageGroup}</strong>).</p>
+        <p>One of our coaches will contact you to confirm a date and time. Places at each session are limited so every player gets proper attention.</p>
+        <p><strong>What to bring:</strong> cleats, shin guards and water.</p>
+        <p>If anything changes, reply to this email or call us on <a href="tel:+16477037821" style="color:${BRAND_RED};text-decoration:none;">${ACADEMY_PHONE}</a>.</p>`;
+
+      return await this.send(
+        to,
+        `Trial request received - ${playerName} (${ageGroup})`,
+        this.layout('Trial request received', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendTrialRequestReceived failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /** Reminder that a league installment is due or overdue. */
+  async sendLeagueInstallmentReminder(
+    to: string,
+    playerName: string,
+    details: {
+      installment: number;
+      amount: number;
+      dueDate: string | null;
+      daysOverdue: number | null;
+      seasonName: string;
+    },
+  ): Promise<boolean> {
+    try {
+      const overdue = (details.daysOverdue ?? 0) > 0;
+      const lead = overdue
+        ? `<p>Our records show the <strong>${details.installment === 1 ? 'first' : 'second'} league payment</strong> for <strong>${playerName}</strong> was due on <strong style="color:${BRAND_RED};">${this.formatDate(details.dueDate)}</strong> and has not yet been received.</p>`
+        : `<p>This is a friendly reminder that the <strong>${details.installment === 1 ? 'first' : 'second'} league payment</strong> for <strong>${playerName}</strong> is due on <strong>${this.formatDate(details.dueDate)}</strong>.</p>`;
+
+      const body = `
+        ${this.heading(overdue ? 'League payment overdue' : 'League payment due')}
+        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
+        ${lead}
+        <p>Amount outstanding: <strong style="color:${BRAND_RED};">$${Number(details.amount).toFixed(2)} CAD</strong> (${details.seasonName})</p>
+        ${this.etransferInstructions()}
+        <p>Rosters are filed with the league in advance and we can only include fully paid players. If you need a short extension, please contact us &mdash; we would much rather arrange something than lose the spot.</p>`;
+
+      return await this.send(
+        to,
+        overdue
+          ? `Overdue: league payment for ${playerName}`
+          : `Reminder: league payment for ${playerName}`,
+        this.layout('League payment', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendLeagueInstallmentReminder failed: ${error.message}`);
+      return false;
+    }
+  }
 }
