@@ -285,3 +285,8 @@ ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "lateFeeFrom" date NULL;
 
 -- Existing seasons keep behaving as before unless changed.
 UPDATE "league_season" SET "lateFeeFrom" = "firstPaymentDue" WHERE "lateFeeFrom" IS NULL;
+
+-- Round 11 — a photo per announcement
+-- Chosen from the Gallery (or uploaded straight into it) rather than typed as
+-- a URL, so the news cards on the homepage can show a real picture.
+ALTER TABLE "announcement" ADD COLUMN IF NOT EXISTS "imageUrl" text NULL;

@@ -34,6 +34,7 @@ export class AnnouncementsService {
       category: dto.category,
       ctaLabel: dto.ctaLabel ?? null,
       ctaUrl: dto.ctaUrl ?? null,
+      imageUrl: dto.imageUrl ?? null,
       isActive: dto.isActive ?? true,
     });
     return this.announcementRepository.save(announcement);
@@ -52,6 +53,7 @@ export class AnnouncementsService {
     if (dto.category !== undefined) announcement.category = dto.category;
     if (dto.ctaLabel !== undefined) announcement.ctaLabel = dto.ctaLabel;
     if (dto.ctaUrl !== undefined) announcement.ctaUrl = dto.ctaUrl;
+    if (dto.imageUrl !== undefined) announcement.imageUrl = dto.imageUrl || null;
     if (dto.isActive !== undefined) announcement.isActive = dto.isActive;
 
     return this.announcementRepository.save(announcement);

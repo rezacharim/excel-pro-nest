@@ -53,6 +53,15 @@ export class Announcement {
   @Column({ type: 'varchar', nullable: true })
   ctaUrl: string | null;
 
+  @ApiProperty({
+    description:
+      'Optional photo shown on the news card. Any image URL — usually one picked from the Gallery.',
+    required: false,
+    nullable: true,
+  })
+  @Column({ type: 'text', nullable: true })
+  imageUrl: string | null;
+
   @ApiProperty({ description: 'Whether the announcement is visible', default: true })
   @Column({ type: 'boolean', default: true })
   isActive: boolean;

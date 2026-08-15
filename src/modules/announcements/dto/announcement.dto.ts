@@ -41,6 +41,13 @@ export class CreateAnnouncementDto {
   ctaUrl?: string;
 
   @ApiPropertyOptional({
+    description: 'Photo URL for the news card (pick one from the Gallery)',
+  })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @ApiPropertyOptional({
     description: 'Whether the announcement is visible',
     default: true,
   })
