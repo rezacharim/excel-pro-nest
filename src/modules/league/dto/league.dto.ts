@@ -141,6 +141,22 @@ export class RegisterForLeagueDto {
   @IsOptional()
   @IsInt()
   userId?: number;
+
+  @ApiPropertyOptional({
+    example: 'indoor',
+    description: 'Season URL key, when not registering for the active season.',
+  })
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'True when the player has never trained with the academy. Seasons that set a new-player rate charge it instead of the member rate.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isNewPlayer?: boolean;
 }
 
 /** Register an existing player from the parent dashboard (details prefilled). */
@@ -307,6 +323,64 @@ export class CreateSeasonDto {
   @IsString()
   @IsNotEmpty()
   name: string;
+
+  @ApiPropertyOptional({
+    example: 'indoor',
+    description: "URL key for the public page: 'indoor' is served at /indoor.",
+  })
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @ApiPropertyOptional({ enum: ['league', 'indoor'], default: 'league' })
+  @IsOptional()
+  @IsIn(['league', 'indoor'])
+  kind?: string;
+
+  @ApiPropertyOptional({ example: 'Indoor Season 2026/27' })
+  @IsOptional()
+  @IsString()
+  tagline?: string;
+
+  @ApiPropertyOptional({ example: 'Covers March & April' })
+  @IsOptional()
+  @IsString()
+  paymentCoversNote?: string;
+
+  @ApiPropertyOptional({ example: 380, description: 'Held-spot deposit' })
+  @IsOptional()
+  @IsNumber()
+  depositAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 380,
+    description: "A new player's first two months, charged up front",
+  })
+  @IsOptional()
+  @IsNumber()
+  firstTermAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 75,
+    description: 'One-time uniform, paid online and collected at first practice',
+  })
+  @IsOptional()
+  @IsNumber()
+  uniformFee?: number;
+
+  @ApiPropertyOptional({
+    example: 835,
+    description:
+      'Override for what a new player pays. Normally left out and summed from the three amounts above.',
+  })
+  @IsOptional()
+  @IsNumber()
+  newPlayerFee?: number;
+
+  @ApiPropertyOptional({ enum: [1, 2], default: 2 })
+  @IsOptional()
+  @IsIn([1, 2])
+  installmentCount?: number;
 
   @ApiPropertyOptional({ example: 'U9,U10,U11,U12,U13,U14,U15,U16' })
   @IsOptional()

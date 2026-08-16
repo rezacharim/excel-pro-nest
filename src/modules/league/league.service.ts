@@ -74,6 +74,15 @@ export class LeagueService {
     return season;
   }
 
+  /** A season addressed by its public URL key, e.g. 'indoor'. */
+  async getSeasonBySlug(slug: string): Promise<LeagueSeason> {
+    const season = await this.seasonRepo.findOne({ where: { slug } });
+    if (!season) {
+      throw new NotFoundException(`No season found at /${slug}`);
+    }
+    return season;
+  }
+
   async listSeasons(): Promise<LeagueSeason[]> {
     return this.seasonRepo.find({ order: { id: 'DESC' } });
   }
@@ -94,6 +103,15 @@ export class LeagueService {
       feePayInFull: dto.feePayInFull ?? null,
       capacityPerGroup: dto.capacityPerGroup ?? 18,
       capacityOverrides: dto.capacityOverrides ?? null,
+      depositAmount: dto.depositAmount ?? null,
+      firstTermAmount: dto.firstTermAmount ?? null,
+      uniformFee: dto.uniformFee ?? null,
+      slug: dto.slug ?? null,
+      kind: dto.kind ?? 'league',
+      tagline: dto.tagline ?? null,
+      paymentCoversNote: dto.paymentCoversNote ?? null,
+      newPlayerFee: dto.newPlayerFee ?? null,
+      installmentCount: dto.installmentCount ?? 2,
       spotsDisplay: dto.spotsDisplay ?? 'threshold',
       spotsThreshold: dto.spotsThreshold ?? 6,
       paymentInstructions: dto.paymentInstructions ?? null,
@@ -122,8 +140,10 @@ export class LeagueService {
    * effective thing on that page — "4 spots left" converts, "register now"
    * does not.
    */
-  async getPublicSeason() {
-    const season = await this.getActiveSeason();
+  async getPublicSeason(slug?: string) {
+    const season = slug
+      ? await this.getSeasonBySlug(slug)
+      : await this.getActiveSeason();
     const groups = this.ageGroupsOf(season);
 
     const rows = await this.registrationRepo
@@ -152,6 +172,12 @@ export class LeagueService {
     return {
       recentSignups,
       spotsDisplay: season.spotsDisplay,
+      slug: season.slug,
+      kind: season.kind,
+      tagline: season.tagline,
+      paymentCoversNote: season.paymentCoversNote,
+      ...this.feeBreakdown(season),
+      installmentCount: season.installmentCount,
       id: season.id,
       name: season.name,
       startsOn: season.startsOn,
@@ -179,6 +205,45 @@ export class LeagueService {
           ...this.presentSpots(season, capacity, spotsLeft),
         };
       }),
+    };
+  }
+
+  /**
+   * What each kind of family pays, itemised. The page renders these lines
+   * verbatim, so changing a price or renaming a line is a database edit.
+   */
+  private feeBreakdown(season: LeagueSeason) {
+    const num = (v: number | null | undefined) =>
+      v === null || v === undefined ? null : Number(v);
+
+    const deposit = num(season.depositAmount) ?? Number(season.feeTotal);
+    const firstTerm = num(season.firstTermAmount);
+    const uniform = num(season.uniformFee);
+
+    const memberLines = [
+      { label: season.paymentCoversNote || 'Reservation', amount: deposit },
+    ];
+
+    const newLines = [...memberLines];
+    if (firstTerm) newLines.push({ label: 'First 2 months', amount: firstTerm });
+    if (uniform) {
+      newLines.push({
+        label: 'Uniform (one-time, collected at first practice)',
+        amount: uniform,
+      });
+    }
+
+    const computedNew = newLines.reduce((sum, l) => sum + l.amount, 0);
+    const newPlayerFee = num(season.newPlayerFee) ?? computedNew;
+
+    return {
+      memberFee: deposit,
+      memberLines,
+      newPlayerFee,
+      newPlayerLines: newLines,
+      depositAmount: deposit,
+      firstTermAmount: firstTerm,
+      uniformFee: uniform,
     };
   }
 
@@ -250,7 +315,9 @@ export class LeagueService {
   async register(dto: RegisterForLeagueDto) {
     const season = dto.seasonId
       ? await this.seasonRepo.findOne({ where: { id: dto.seasonId } })
-      : await this.getActiveSeason();
+      : dto.slug
+        ? await this.getSeasonBySlug(dto.slug)
+        : await this.getActiveSeason();
     if (!season) throw new NotFoundException('Season not found');
     if (!season.registrationOpen) {
       throw new BadRequestException(
@@ -267,9 +334,17 @@ export class LeagueService {
     }
 
     const email = dto.email.trim().toLowerCase();
-    const user = dto.userId
-      ? await this.userRepo.findOne({ where: { id: dto.userId } })
-      : await this.findOrCreatePlayer(dto, email);
+    let user: User | null;
+    // Whether the academy has had this player before decides which rate the
+    // season charges. Worked out here rather than trusted from the browser.
+    let isNewPlayer = false;
+    if (dto.userId) {
+      user = await this.userRepo.findOne({ where: { id: dto.userId } });
+    } else {
+      const found = await this.findOrCreatePlayer(dto, email);
+      user = found.user;
+      isNewPlayer = found.isNew;
+    }
 
     await this.assertNotAlreadyRegistered(season.id, {
       userId: user?.id ?? null,
@@ -279,6 +354,7 @@ export class LeagueService {
     });
 
     const registration = await this.buildRegistration(season, {
+      isNewPlayer,
       userId: user?.id ?? null,
       ageGroup: dto.ageGroup,
       firstName: dto.firstName.trim(),
@@ -1018,7 +1094,7 @@ export class LeagueService {
   private async findOrCreatePlayer(
     dto: RegisterForLeagueDto,
     email: string,
-  ): Promise<User> {
+  ): Promise<{ user: User; isNew: boolean }> {
     const fullname = `${dto.firstName.trim()} ${dto.lastName.trim()}`.trim();
 
     const existing = await this.userRepo.findOne({
@@ -1033,7 +1109,7 @@ export class LeagueService {
       existing.postalCode = existing.postalCode || dto.postalCode;
       existing.phone_number = existing.phone_number || dto.phone;
       if (dto.medicalNotes) existing.medicalNotes = dto.medicalNotes;
-      return this.userRepo.save(existing);
+      return { user: await this.userRepo.save(existing), isNew: false };
     }
 
     const player = this.userRepo.create({
@@ -1063,21 +1139,35 @@ export class LeagueService {
       jacketSize: TShirtSize.YM,
       pantsSize: TShirtSize.YM,
     });
-    return this.userRepo.save(player);
+    return { user: await this.userRepo.save(player), isNew: true };
   }
 
   private async buildRegistration(
     season: LeagueSeason,
-    data: Partial<LeagueRegistration> & { ageGroup: string },
+    data: Partial<LeagueRegistration> & {
+      ageGroup: string;
+      /** Not a column — decides which rate the season charges. */
+      isNewPlayer?: boolean;
+    },
   ): Promise<LeagueRegistration> {
     const late = this.isLate(season);
-    const payInFull = data.payInFull ?? false;
+    // A one-payment season (the indoor deposit) is "pay in full" by nature.
+    const singlePayment = season.installmentCount === 1;
+    const payInFull = singlePayment || (data.payInFull ?? false);
+
+    // A player the academy has never had on file pays the new-player rate
+    // when the season sets one — for indoor that is the deposit plus their
+    // first two months.
+    const isNewPlayer = data.isNewPlayer === true;
+    const fees = this.feeBreakdown(season);
+    // The amount charged is the same number the page quoted — one source.
+    const baseFee = isNewPlayer ? fees.newPlayerFee : fees.memberFee;
 
     const feeTotal = late
-      ? Number(season.feeLate)
-      : payInFull && season.feePayInFull !== null
+      ? Number(season.feeLate) || baseFee
+      : payInFull && !singlePayment && season.feePayInFull !== null
         ? Number(season.feePayInFull)
-        : Number(season.feeTotal);
+        : baseFee;
 
     const firstAmount = payInFull ? feeTotal : Number((feeTotal / 2).toFixed(2));
     const secondAmount = payInFull
@@ -1097,8 +1187,11 @@ export class LeagueService {
     const status: LeagueRegistrationStatus =
       taken >= season.capacityPerGroup ? 'waitlist' : 'pending_payment';
 
+    // isNewPlayer only chooses the rate; it is not a column on the row.
+    const { isNewPlayer: _rateFlag, ...columns } = data;
+    void _rateFlag;
     const registration = this.registrationRepo.create({
-      ...data,
+      ...columns,
       seasonId: season.id,
       teamRole: 'PLAYER',
       status,

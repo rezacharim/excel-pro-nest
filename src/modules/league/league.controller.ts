@@ -57,6 +57,15 @@ export class LeaguePublicController {
     return this.leagueService.getPublicSeason();
   }
 
+  @Get('season/:slug')
+  @ApiOperation({
+    summary: 'A specific season by its URL key, e.g. indoor (public)',
+  })
+  @ApiParam({ name: 'slug', example: 'indoor' })
+  seasonBySlug(@Param('slug') slug: string) {
+    return this.leagueService.getPublicSeason(slug);
+  }
+
   @Post('register')
   @ApiOperation({ summary: 'Register a player for the league (public form)' })
   @ApiBody({ type: RegisterForLeagueDto })

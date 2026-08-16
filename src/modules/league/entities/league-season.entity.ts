@@ -25,6 +25,71 @@ export class LeagueSeason {
   name: string;
 
   /**
+   * URL key for the public page: 'winter-league' is served at /league,
+   * 'indoor' at /indoor. Having a slug is what lets two programs take
+   * registrations at the same time, and what lets a season be replaced next
+   * year by adding a row rather than changing code.
+   */
+  @ApiProperty({ example: 'indoor' })
+  @Column({ type: 'varchar', nullable: true, unique: true })
+  slug: string | null;
+
+  @ApiProperty({ enum: ['league', 'indoor'], default: 'league' })
+  @Column({ type: 'varchar', default: 'league' })
+  kind: string;
+
+  /** Headline shown on the public page, e.g. 'Indoor Season 2026/27'. */
+  @ApiProperty({ required: false })
+  @Column({ type: 'text', nullable: true })
+  tagline: string | null;
+
+  /**
+   * What the money being collected now actually buys. The indoor deposit pays
+   * for March and April even though it is taken in September, and a parent
+   * who is not told that assumes it is a mistake.
+   */
+  @ApiProperty({ required: false, example: 'Covers March & April' })
+  @Column({ type: 'text', nullable: true })
+  paymentCoversNote: string | null;
+
+  /**
+   * The parts a booking is made of. Kept as separate amounts rather than one
+   * total so the page can itemise them: an $835 figure with no explanation
+   * generates a message asking what it is, every single time.
+   *
+   *   deposit      what every player pays now to hold the spot
+   *   firstTerm    a new player's first two months, charged up front
+   *   uniform      one-time kit, paid online and collected at first practice
+   *
+   * Existing member pays: deposit
+   * New player pays:      deposit + firstTerm + uniform
+   */
+  @ApiProperty({ required: false, example: 380 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  depositAmount: number | null;
+
+  @ApiProperty({ required: false, example: 380 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  firstTermAmount: number | null;
+
+  @ApiProperty({ required: false, example: 75 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  uniformFee: number | null;
+
+  /**
+   * Explicit override for what a new player pays. Normally left null and
+   * worked out from the three amounts above.
+   */
+  @ApiProperty({ required: false, example: 835 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  newPlayerFee: number | null;
+
+  /** 1 = a single payment (indoor deposit), 2 = the league's two installments. */
+  @ApiProperty({ enum: [1, 2], default: 2 })
+  @Column({ type: 'int', default: 2 })
+  installmentCount: number;
+
+  /**
    * Age groups open for registration, stored as a comma-separated list so the
    * column needs no Postgres array handling: 'U9,U10,U11,U12,U13,U14,U15,U16'.
    */

@@ -290,3 +290,55 @@ UPDATE "league_season" SET "lateFeeFrom" = "firstPaymentDue" WHERE "lateFeeFrom"
 -- Chosen from the Gallery (or uploaded straight into it) rather than typed as
 -- a URL, so the news cards on the homepage can show a real picture.
 ALTER TABLE "announcement" ADD COLUMN IF NOT EXISTS "imageUrl" text NULL;
+
+-- Round 12 — a second program alongside the league (Indoor), addressable by
+-- URL, so next season is a new row rather than a code change.
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "slug" character varying NULL;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "kind" character varying NOT NULL DEFAULT 'league';
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "tagline" text NULL;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "paymentCoversNote" text NULL;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "newPlayerFee" numeric(10,2) NULL;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "installmentCount" integer NOT NULL DEFAULT 2;
+-- The parts a booking is made of, so the page can itemise them instead of
+-- showing one unexplained total.
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "depositAmount" numeric(10,2) NULL;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "firstTermAmount" numeric(10,2) NULL;
+ALTER TABLE "league_season" ADD COLUMN IF NOT EXISTS "uniformFee" numeric(10,2) NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "UQ_league_season_slug" ON "league_season" ("slug") WHERE "slug" IS NOT NULL;
+
+-- The existing Winter League keeps working, now reachable at /league.
+UPDATE "league_season"
+SET "slug" = 'winter-league', "kind" = 'league'
+WHERE "name" = 'Winter League 2026/27' AND "slug" IS NULL;
+
+-- Indoor Season 2026/27, served at /indoor.
+--   depositAmount    every player pays this now (covers March & April)
+--   firstTermAmount  a new player's first two months, charged up front
+--   uniformFee       one-time kit, paid online, collected at first practice
+-- Member pays 380. New player pays 380 + 380 + 75 = 835.
+INSERT INTO "league_season"
+  ("name", "slug", "kind", "tagline", "ageGroups", "startsOn",
+   "firstPaymentDue", "lateFeeFrom", "feeTotal", "feeLate",
+   "depositAmount", "firstTermAmount", "uniformFee",
+   "installmentCount", "capacityPerGroup", "paymentCoversNote",
+   "spotsDisplay", "spotsThreshold", "paymentInstructions", "isActive")
+SELECT
+  'Indoor Season 2026/27', 'indoor', 'indoor', 'Indoor Season 2026/27',
+  'U5-U8,U9-U12,U13-U14,U15-U18',
+  DATE '2026-10-05', DATE '2026-09-20', DATE '2026-09-20',
+  380, 380,
+  380, 380, 75,
+  1, 20,
+  'Reservation - covers March & April',
+  'threshold', 6,
+  'Send your Interac e-Transfer to Excelpro.Etransfer@gmail.com and put the player''s full name and age group in the message.',
+  false
+WHERE NOT EXISTS (SELECT 1 FROM "league_season" WHERE "slug" = 'indoor');
+
+-- If you already ran the earlier version of Round 12, this brings that row
+-- up to date. Harmless otherwise.
+UPDATE "league_season"
+SET "depositAmount" = 380, "firstTermAmount" = 380, "uniformFee" = 75,
+    "newPlayerFee" = NULL,
+    "paymentCoversNote" = 'Reservation - covers March & April'
+WHERE "slug" = 'indoor' AND "depositAmount" IS NULL;
