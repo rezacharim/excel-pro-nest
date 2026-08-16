@@ -8,6 +8,18 @@ const ACADEMY_PHONE = '+1 647-703-7821';
 const ACADEMY_EMAIL = 'excelprosocceracademy@gmail.com';
 const ETRANSFER_EMAIL = 'Excelpro.Etransfer@gmail.com';
 
+/**
+ * Membership pricing, in one place. These three numbers appear in several
+ * emails; keeping them here means a price change is a one-line edit and the
+ * welcome email can never drift out of step with the renewal reminder again.
+ *
+ * A first-time family pays the 2-month fee PLUS the one-time uniform. A family
+ * that is renewing already owns a uniform, so they pay the 2-month fee only.
+ */
+const FEE_TWO_MONTHS = 380;
+const FEE_UNIFORM = 75;
+const FEE_FIRST_TIME = FEE_TWO_MONTHS + FEE_UNIFORM; // 455
+
 export interface AdminDigestRow {
   fullname: string;
   parent_name?: string;
@@ -167,7 +179,38 @@ export class MailService {
     return `<h1 style="margin:0 0 16px;font-size:20px;color:${BRAND_NAVY};">${text}</h1>`;
   }
 
-  private etransferInstructions(): string {
+  /**
+   * The e-transfer "how to pay" box.
+   *
+   * @param mode 'joining'  - brand-new family: 2 months + the one-time uniform
+   *             'renewal'  - family that already owns a uniform: 2 months only
+   *             { amount } - an exact figure the caller already knows (league
+   *                          installments, for example). Never fall back to the
+   *                          membership price in that case: the box sits
+   *                          directly under the real amount and a mismatch
+   *                          tells the parent to send the wrong money.
+   */
+  private etransferInstructions(
+    mode: 'joining' | 'renewal' | { amount: number; forWhat: string } = 'renewal',
+  ): string {
+    const exact = typeof mode === 'object' ? mode : null;
+    const amount = exact
+      ? Number(exact.amount).toFixed(2)
+      : String(mode === 'joining' ? FEE_FIRST_TIME : FEE_TWO_MONTHS);
+    const forWhat = exact
+      ? exact.forWhat
+      : mode === 'joining'
+        ? `for your first 2 months of membership <strong>plus the one-time $${FEE_UNIFORM} uniform</strong>`
+        : 'for 2 months of membership';
+    const breakdown =
+      mode === 'joining'
+        ? `<br />
+            <span style="display:inline-block;margin-top:10px;color:#555555;font-size:13px;line-height:1.7;">
+              $${FEE_TWO_MONTHS} &mdash; first 2 months of membership<br />
+              $${FEE_UNIFORM} &mdash; full uniform, one time only. Yours to keep; we hand it to you at the first practice.<br />
+              <strong style="color:${BRAND_NAVY};">$${FEE_FIRST_TIME} CAD total</strong>
+            </span>`
+        : '';
     return `
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;background-color:#fdf1f0;border-left:4px solid ${BRAND_RED};border-radius:4px;">
         <tr>
@@ -175,7 +218,7 @@ export class MailService {
             <strong style="color:${BRAND_NAVY};">How to pay by Interac e-Transfer:</strong><br />
             1. Send your e-Transfer to <a href="mailto:${ETRANSFER_EMAIL}" style="color:${BRAND_RED};font-weight:bold;text-decoration:none;">${ETRANSFER_EMAIL}</a><br />
             2. Include your player's <strong>full name</strong> in the transfer message<br />
-            3. Amount: <strong>$380 CAD</strong> for 2 months of membership
+            3. Amount: <strong>$${amount} CAD</strong> ${forWhat}${breakdown}
           </td>
         </tr>
       </table>`;
@@ -316,7 +359,7 @@ export class MailService {
   ): Promise<boolean> {
     try {
       const breakdown = isFirstTime
-        ? `<p style="color:#555555;font-size:14px;">This is $380 for the first 2 months plus the one-time $75 registration fee.</p>`
+        ? `<p style="color:#555555;font-size:14px;">This is $${FEE_TWO_MONTHS} for the first 2 months plus the one-time $${FEE_UNIFORM} uniform fee. The uniform is yours to keep and we hand it to you at the first practice.</p>`
         : '';
       const body = `
         ${this.heading('How to send your payment')}
@@ -593,7 +636,7 @@ export class MailService {
         <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
         <p>Welcome to the Excel Pro family! We are thrilled to have <strong>${playerName}</strong> join us${planName ? ` in the <strong style="color:${BRAND_RED};">${planName}</strong> program` : ''}.</p>
         <p>Our coaching staff is committed to helping every player develop their skills, confidence, and love for the game.</p>
-        ${this.etransferInstructions()}
+        ${this.etransferInstructions('joining')}
         <p>If you have any questions about schedules, equipment, or anything else, don't hesitate to reach out.</p>
         <p>See you on the field!</p>`;
       return await this.send(
@@ -826,7 +869,10 @@ export class MailService {
         <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
         ${lead}
         <p>Amount outstanding: <strong style="color:${BRAND_RED};">$${Number(details.amount).toFixed(2)} CAD</strong> (${details.seasonName})</p>
-        ${this.etransferInstructions()}
+        ${this.etransferInstructions({
+          amount: Number(details.amount),
+          forWhat: `&mdash; ${details.installment === 1 ? 'first' : 'second'} league payment for ${details.seasonName}`,
+        })}
         <p>Rosters are filed with the league in advance and we can only include fully paid players. If you need a short extension, please contact us &mdash; we would much rather arrange something than lose the spot.</p>`;
 
       return await this.send(
