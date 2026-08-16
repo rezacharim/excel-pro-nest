@@ -7,6 +7,12 @@ import {
 } from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
 
+/** One picture in a coach's profile gallery. */
+export interface CoachPhoto {
+  url: string;
+  caption?: string;
+}
+
 /**
  * A coach shown on the public /coaches page.
  *
@@ -23,6 +29,15 @@ export class Coach {
   @ApiProperty({ description: 'Coach full name', example: 'Iman Badamaki' })
   @Column({ type: 'text' })
   name: string;
+
+  @ApiProperty({
+    description:
+      'URL segment for the profile page, e.g. "reza-abedian" serves ' +
+      '/coaches/reza-abedian. Derived from the name when not supplied.',
+    example: 'iman-badamaki',
+  })
+  @Column({ type: 'varchar', unique: true })
+  slug: string;
 
   @ApiProperty({
     description: 'Title shown under the name',
@@ -43,6 +58,25 @@ export class Coach {
   })
   @Column({ type: 'text', nullable: true })
   imageUrl: string | null;
+
+  @ApiProperty({
+    description:
+      'The long story shown on the profile page: playing career through to ' +
+      'coaching. Blank lines separate paragraphs. The short bio above still ' +
+      'drives the card on /coaches.',
+    default: '',
+  })
+  @Column({ type: 'text', default: '' })
+  longBio: string;
+
+  @ApiProperty({
+    description:
+      'Gallery photos for the profile page, in display order. Stored as ' +
+      'JSON so a caption can travel with each picture.',
+    example: [{ url: 'https://…/photo.jpg', caption: 'Persepolis FC, 2004' }],
+  })
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  photos: CoachPhoto[];
 
   @ApiProperty({
     description:
