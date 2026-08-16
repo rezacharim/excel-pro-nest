@@ -43,6 +43,16 @@ export class CoachesController {
     return this.coachesService.findAll();
   }
 
+  // Declared after /all so "all" is never swallowed as a slug, and before the
+  // numeric :id routes below.
+  @Get('by-slug/:slug')
+  @ApiOperation({ summary: 'Get one coach by URL segment (public)' })
+  @ApiParam({ name: 'slug', example: 'reza-abedian' })
+  @ApiResponse({ status: 200, type: Coach })
+  findBySlug(@Param('slug') slug: string) {
+    return this.coachesService.findBySlug(slug);
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

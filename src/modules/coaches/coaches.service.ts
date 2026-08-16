@@ -24,14 +24,26 @@ export class CoachesService {
     return this.repo.find({ order: { sortOrder: 'ASC', id: 'ASC' } });
   }
 
+  /** One coach by URL segment. Hidden coaches are not reachable publicly. */
+  async findBySlug(slug: string): Promise<Coach> {
+    const coach = await this.repo.findOne({ where: { slug, isActive: true } });
+    if (!coach) {
+      throw new NotFoundException(`No coach at "${slug}"`);
+    }
+    return coach;
+  }
+
   async create(dto: CreateCoachDto): Promise<Coach> {
     // A new coach goes to the end unless the caller says otherwise, so adding
     // someone never silently reshuffles the people already on the page.
     const sortOrder = dto.sortOrder ?? (await this.nextSortOrder());
     const coach = this.repo.create({
       name: dto.name,
+      slug: await this.uniqueSlug(dto.slug || dto.name),
       role: dto.role,
       bio: dto.bio ?? '',
+      longBio: dto.longBio ?? '',
+      photos: dto.photos ?? [],
       imageUrl: dto.imageUrl ?? null,
       sortOrder,
       isActive: dto.isActive ?? true,
@@ -44,8 +56,16 @@ export class CoachesService {
     if (!coach) {
       throw new NotFoundException(`Coach ${id} not found`);
     }
+    // Renaming a coach deliberately does NOT move their profile URL. A link
+    // already shared with parents should keep working; the slug is editable
+    // on its own if it really needs to change.
+    const slug =
+      dto.slug === undefined || dto.slug === coach.slug
+        ? coach.slug
+        : await this.uniqueSlug(dto.slug, id);
     Object.assign(coach, {
       ...dto,
+      slug,
       // An empty photo field means "no photo", not "leave it alone".
       imageUrl: dto.imageUrl === undefined ? coach.imageUrl : dto.imageUrl || null,
     });
@@ -84,6 +104,32 @@ export class CoachesService {
       }
     }
     return this.findAll();
+  }
+
+  /**
+   * Turn a name into a URL segment, then make sure nothing else is using it.
+   * Collisions get -2, -3 and so on: the academy has two coaches called Reza
+   * already, so two people with the same full name is not far-fetched.
+   */
+  private async uniqueSlug(source: string, ignoreId?: number): Promise<string> {
+    const base =
+      source
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60) || 'coach';
+
+    let candidate = base;
+    for (let n = 2; n < 100; n += 1) {
+      const clash = await this.repo.findOne({ where: { slug: candidate } });
+      if (!clash || clash.id === ignoreId) {
+        return candidate;
+      }
+      candidate = `${base}-${n}`;
+    }
+    return `${base}-${Date.now()}`;
   }
 
   private async nextSortOrder(): Promise<number> {
