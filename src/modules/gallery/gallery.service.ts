@@ -60,8 +60,16 @@ export class GalleryService {
 
       if (error) {
         console.error('Error uploading to Supabase:', error);
+        // Pass the real reason through. Storage rejects uploads for concrete,
+        // fixable reasons — file too large for the bucket, a MIME type the
+        // bucket does not allow, a missing bucket — and hiding all of them
+        // behind one sentence meant an admin had nothing to act on.
+        const detail =
+          (error as { message?: string })?.message || 'unknown storage error';
         throw new InternalServerErrorException(
-          'Failed to upload file to storage',
+          `Storage rejected the file (${file.mimetype}, ${Math.round(
+            file.size / 1024,
+          )}KB): ${detail}`,
         );
       }
 

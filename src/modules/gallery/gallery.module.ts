@@ -33,14 +33,25 @@ import { AuthModule } from '../auth/auth.module';
           },
         }),
         fileFilter: (req, file, cb) => {
-          // Check file types
-          if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
-            return cb(new Error('Only image files are allowed!'), false);
+          // Accept any image. The old list was jpg/jpeg/png/gif/webp, which
+          // silently rejected HEIC from iPhones, AVIF, TIFF and .jfif scans —
+          // and the rejection surfaced to the admin as a bare "Upload failed"
+          // with no mention of the file type.
+          if (!file.mimetype?.startsWith('image/')) {
+            return cb(
+              new Error(
+                `That file is a ${file.mimetype || 'unknown type'}, not an image.`,
+              ),
+              false,
+            );
           }
           cb(null, true);
         },
         limits: {
-          fileSize: 5 * 1024 * 1024, // 5MB
+          // Matches the controller. The real ceiling is Vercel's 4.5MB request
+          // body limit, which we cannot raise — the browser shrinks photos
+          // before sending for that reason.
+          fileSize: 10 * 1024 * 1024,
         },
       }),
     }),
