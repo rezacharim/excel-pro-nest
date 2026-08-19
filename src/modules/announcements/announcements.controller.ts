@@ -54,6 +54,15 @@ export class AnnouncementsController {
     return this.announcementsService.findAll();
   }
 
+  // Declared before the :id routes so a slug is never parsed as a number.
+  @Get('by-slug/:slug')
+  @ApiOperation({ summary: 'Get one post by URL segment (public)' })
+  @ApiParam({ name: 'slug', example: 'u13-markham-cup-final' })
+  @ApiResponse({ status: 200, type: Announcement })
+  findBySlug(@Param('slug') slug: string) {
+    return this.announcementsService.findBySlug(slug);
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

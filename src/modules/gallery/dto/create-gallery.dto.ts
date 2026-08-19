@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateGalleryDto {
   @ApiProperty({
@@ -18,4 +24,15 @@ export class CreateGalleryDto {
   @IsOptional()
   @IsString()
   caption?: string;
+
+  @ApiProperty({
+    description: 'Show this photo in the home page slideshow',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  // Multipart uploads arrive as strings, so "true" has to survive the trip.
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  show_on_home?: boolean;
 }

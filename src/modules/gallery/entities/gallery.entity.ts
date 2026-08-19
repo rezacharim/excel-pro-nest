@@ -74,6 +74,16 @@ export class Gallery {
   caption?: string;
 
   @ApiProperty({
+    description:
+      'Show this photo in the home page slideshow. When no photo is flagged ' +
+      'the slideshow falls back to the newest uploads, so the front page is ' +
+      'never empty just because nobody has chosen yet.',
+    default: false,
+  })
+  @Column({ name: 'show_on_home', type: 'boolean', default: false })
+  show_on_home: boolean;
+
+  @ApiProperty({
     description: 'Creation timestamp',
     example: '2023-10-15T14:30:00Z',
   })

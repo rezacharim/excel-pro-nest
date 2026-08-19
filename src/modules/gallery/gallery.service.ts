@@ -152,6 +152,9 @@ export class GalleryService {
       if (updateGalleryDto.caption !== undefined) {
         galleryItem.caption = updateGalleryDto.caption;
       }
+      if (updateGalleryDto.show_on_home !== undefined) {
+        galleryItem.show_on_home = updateGalleryDto.show_on_home;
+      }
 
       return await this.galleryRepository.save(galleryItem);
     } catch (error) {
