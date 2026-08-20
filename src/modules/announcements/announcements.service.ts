@@ -15,16 +15,53 @@ export class AnnouncementsService {
   ) {}
 
   async findActive(): Promise<Announcement[]> {
-    return this.announcementRepository.find({
-      where: { isActive: true },
-      order: { createdAt: 'DESC' },
-    });
+    return this.backfillSlugs(
+      await this.announcementRepository.find({
+        where: { isActive: true },
+        order: { createdAt: 'DESC' },
+      }),
+    );
   }
 
   async findAll(): Promise<Announcement[]> {
-    return this.announcementRepository.find({
-      order: { createdAt: 'DESC' },
-    });
+    return this.backfillSlugs(
+      await this.announcementRepository.find({
+        order: { createdAt: 'DESC' },
+      }),
+    );
+  }
+
+  /**
+   * Gives a slug to any post that does not have one.
+   *
+   * The slug column was added after these rows existed and is nullable on
+   * purpose, so the three oldest notices — Winter League, Trials and Indoor —
+   * had no page to link to. The dashboard mints a slug on save, but that
+   * relies on somebody remembering to open and re-save every old post, and
+   * nobody did. Until then those notices were the only thing on the page a
+   * parent could not read.
+   *
+   * Writing during a read is not free, so this is guarded tightly: it only
+   * touches rows where slug is null, which makes it a one-time write per post
+   * and a no-op on every request afterwards. A failure is swallowed and the
+   * list is returned unchanged — a post without a URL is a small problem, and
+   * an announcements endpoint that 500s is a much larger one.
+   */
+  private async backfillSlugs(
+    posts: Announcement[],
+  ): Promise<Announcement[]> {
+    const missing = posts.filter((p) => !p.slug);
+    if (missing.length === 0) return posts;
+    try {
+      for (const post of missing) {
+        post.slug = await this.uniqueSlug(post.title, post.id);
+      }
+      await this.announcementRepository.save(missing);
+    } catch (error) {
+      // Leave them slugless rather than take the endpoint down.
+      console.error('Could not backfill announcement slugs', error);
+    }
+    return posts;
   }
 
   /** One post by URL segment. Hidden posts are not reachable publicly. */
