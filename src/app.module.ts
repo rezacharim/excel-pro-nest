@@ -29,6 +29,7 @@ import { CollectionsModule } from './modules/collections/collections.module';
 import { LeagueModule } from './modules/league/league.module';
 import { CoachesModule } from './modules/coaches/coaches.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
+import { FixturesModule } from './modules/fixtures/fixtures.module';
 
 dotenv.config({ path: '.env.local' });
 @Module({
@@ -68,6 +69,7 @@ dotenv.config({ path: '.env.local' });
     LeagueModule,
     CoachesModule,
     TestimonialsModule,
+    FixturesModule,
   ],
 })
 export class AppModule implements NestModule {
