@@ -28,8 +28,8 @@ export const SITE_TEXT_DEFAULTS: Record<string, string> = {
   'instagram.eyebrow': 'Follow our journey',
   'instagram.heading': 'Latest from our Instagram',
   'instagram.blurb': 'Training sessions, match days and player moments —',
-  'instagram.handle': '@excel.pro.soccer.academy',
-  'instagram.url': 'https://www.instagram.com/excel.pro.soccer.academy',
+  'instagram.handle': '@ExcelProSoccer',
+  'instagram.url': 'https://www.instagram.com/excelprosoccer',
   // News
   'news.eyebrow': "What's happening",
   'news.heading': 'Latest from the academy',
