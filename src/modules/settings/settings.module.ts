@@ -3,11 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Setting } from './entities/setting.entity';
 import { SettingsService } from './settings.service';
 import { SettingsController } from './settings.controller';
+import { SiteTextController } from './site-text.controller';
 
 @Global()
 @Module({
   imports: [TypeOrmModule.forFeature([Setting])],
-  controllers: [SettingsController],
+  controllers: [SettingsController, SiteTextController],
   providers: [SettingsService],
   exports: [SettingsService],
 })
