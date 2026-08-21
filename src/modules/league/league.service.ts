@@ -25,6 +25,7 @@ import {
 } from '../users/entities/enums/enums';
 import { MailService } from '../mail/mail.service';
 import {
+  AdminCreateRegistrationDto,
   BookTrialDto,
   CreateSeasonDto,
   PortalRegisterDto,
@@ -461,6 +462,149 @@ export class LeagueService {
     await this.userRepo.save(user);
 
     await this.sendRegistrationEmail(season, registration);
+    return this.toRegistrationView(registration, season);
+  }
+
+  /**
+   * An admin adding a registration by hand.
+   *
+   * Deliberately more permissive than the public form: a closed season is
+   * accepted, and consent is taken as given because the admin is recording a
+   * decision the family already made somewhere else — on the phone, by
+   * e-transfer, or through the wrong form on the website.
+   *
+   * Everything downstream is identical to a public registration: same fee
+   * rules, same late check, same waitlist behaviour when an age group is full,
+   * same roster export. This is a different door into the same room, not a
+   * second kind of registration.
+   */
+  async adminCreateRegistration(dto: AdminCreateRegistrationDto) {
+    const season = dto.seasonId
+      ? await this.seasonRepo.findOne({ where: { id: dto.seasonId } })
+      : await this.getActiveSeason();
+    if (!season) throw new NotFoundException('Season not found');
+
+    let user: User | null = null;
+    let isNewPlayer = false;
+
+    if (dto.userId) {
+      user = await this.userRepo.findOne({ where: { id: dto.userId } });
+      if (!user) throw new NotFoundException('Player not found');
+    }
+
+    // Whatever the member record holds, overridden by anything typed in.
+    const [memberFirst, ...memberRest] = (user?.fullname || '')
+      .trim()
+      .split(/\s+/);
+    const firstName = (dto.firstName ?? memberFirst ?? '').trim();
+    const lastName = (dto.lastName ?? memberRest.join(' ') ?? '').trim();
+    const email = (dto.email ?? user?.email ?? '').trim().toLowerCase();
+    const phone = (dto.phone ?? user?.phone_number ?? '').trim();
+    const dateOfBirth = dto.dateOfBirth ?? user?.dateOfBirth ?? null;
+    const address1 = (dto.address1 ?? user?.address ?? '').trim();
+    const city = (dto.city ?? user?.city ?? '').trim();
+    const postalCode = (dto.postalCode ?? user?.postalCode ?? '').trim();
+    const gender = dto.gender ?? this.toLeagueGender(user?.gender);
+
+    // Named all at once. Being told about one missing field per save, five
+    // saves running, is how a form earns a reputation.
+    const missing = [
+      !firstName && 'first name',
+      !lastName && 'last name',
+      !email && 'email',
+      !phone && 'phone',
+      !dateOfBirth && 'date of birth',
+      !address1 && 'address',
+      !city && 'city',
+      !postalCode && 'postal code',
+    ].filter(Boolean) as string[];
+    if (missing.length) {
+      throw new BadRequestException(
+        `The league roster needs ${missing.join(', ')}. ${
+          dto.userId
+            ? "This player's record does not have them — add them here and they will be saved back to the member record."
+            : 'Please complete the form.'
+        }`,
+      );
+    }
+
+    if (!user) {
+      // Same lookup the public form uses, so entering a family that already
+      // exists links to their record rather than creating a duplicate.
+      const found = await this.findOrCreatePlayer(
+        {
+          ageGroup: dto.ageGroup,
+          firstName,
+          lastName,
+          dateOfBirth,
+          gender,
+          email,
+          phone,
+          address1,
+          city,
+          province: dto.province || 'ON',
+          postalCode,
+          country: dto.country || 'Canada',
+          parentName: dto.parentName,
+          medicalNotes: dto.medicalNotes,
+          jerseySize: dto.jerseySize,
+          consentTerms: true,
+        } as RegisterForLeagueDto,
+        email,
+      );
+      user = found.user;
+      isNewPlayer = found.isNew;
+    } else {
+      // Fill gaps in the member record from what was just typed, so the next
+      // registration does not ask again.
+      user.dateOfBirth = user.dateOfBirth || dateOfBirth;
+      user.address = user.address || address1;
+      user.city = user.city || city;
+      user.postalCode = user.postalCode || postalCode;
+      user.phone_number = user.phone_number || phone;
+      if (dto.medicalNotes) user.medicalNotes = dto.medicalNotes;
+      await this.userRepo.save(user);
+    }
+
+    await this.assertNotAlreadyRegistered(season.id, {
+      userId: user?.id ?? null,
+      firstName,
+      lastName,
+      dateOfBirth,
+    });
+
+    const registration = await this.buildRegistration(season, {
+      isNewPlayer,
+      userId: user?.id ?? null,
+      ageGroup: dto.ageGroup,
+      firstName,
+      lastName,
+      email,
+      dateOfBirth,
+      gender,
+      phone,
+      address1,
+      city,
+      province: (dto.province || 'ON').trim(),
+      postalCode: this.normalisePostalCode(postalCode),
+      country: (dto.country || 'Canada').trim(),
+      parentName: dto.parentName?.trim() ?? user?.parent_name ?? null,
+      medicalNotes: dto.medicalNotes?.trim() ?? user?.medicalNotes ?? null,
+      jerseySize: dto.jerseySize ?? user?.tShirtSize ?? null,
+      previousClub: dto.previousClub?.trim() ?? null,
+      consentTerms: true,
+      consentPhoto: dto.consentPhoto ?? false,
+      payInFull: dto.payInFull ?? false,
+      adminNote: dto.adminNote?.trim() || 'Added from the dashboard',
+    });
+
+    // Off by choice when the admin is recording something that already
+    // happened — a second "thanks for registering" email a week late reads
+    // like the academy lost track.
+    if (dto.sendEmail !== false) {
+      await this.sendRegistrationEmail(season, registration);
+    }
+
     return this.toRegistrationView(registration, season);
   }
 

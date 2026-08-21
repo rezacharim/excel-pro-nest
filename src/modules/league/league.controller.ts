@@ -29,6 +29,7 @@ import { ActivityInterceptor } from '../activity/activity.interceptor';
 import { LeagueService } from './league.service';
 import { LeagueExportService } from './league-export.service';
 import {
+  AdminCreateRegistrationDto,
   BookTrialDto,
   CreateSeasonDto,
   PortalAddPlayerDto,
@@ -199,6 +200,17 @@ export class LeagueAdminController {
       status,
       search,
     });
+  }
+
+  @Post('registrations')
+  @ApiOperation({
+    summary:
+      'Add a registration by hand (phone sign-up, e-transfer, wrong form on the site)',
+  })
+  @ApiBody({ type: AdminCreateRegistrationDto })
+  @ApiResponse({ status: 201, description: 'Registration created' })
+  createRegistration(@Body() dto: AdminCreateRegistrationDto) {
+    return this.leagueService.adminCreateRegistration(dto);
   }
 
   @Patch('registrations/:id')

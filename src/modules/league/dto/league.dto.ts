@@ -281,6 +281,93 @@ export class UpdateRegistrationDto {
   @ApiPropertyOptional() @IsOptional() @IsString() country?: string;
 }
 
+/**
+ * An admin entering a registration on a family's behalf.
+ *
+ * Until this existed the only ways into the roster were the public form and
+ * the parent portal, so a family who paid by e-transfer, or over the phone,
+ * or who registered through the membership flow by mistake, could not be put
+ * on the roster at all without the admin filling in the public form as them.
+ *
+ * Two differences from the public form, both deliberate:
+ *   - a closed season is still accepted, because "registration closed" is a
+ *     rule for parents, not for the person running the league;
+ *   - `userId` links an existing member, and then every personal field is
+ *     optional — their record already holds it, and retyping is how rosters
+ *     end up with two spellings of the same child.
+ */
+export class AdminCreateRegistrationDto {
+  @ApiPropertyOptional({ description: 'Defaults to the active season' })
+  @IsOptional()
+  @IsInt()
+  seasonId?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'An existing member. Their details are used; anything you also pass overrides them.',
+  })
+  @IsOptional()
+  @IsInt()
+  userId?: number;
+
+  @ApiProperty({ enum: AGE_GROUPS, example: 'U13' })
+  @IsIn(AGE_GROUPS as unknown as string[])
+  ageGroup: string;
+
+  // Required when userId is absent; validated in the service so the error can
+  // name every missing field at once instead of one per request.
+  @ApiPropertyOptional() @IsOptional() @IsString() firstName?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() lastName?: string;
+  @ApiPropertyOptional({ example: '2013-06-27' })
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+  @ApiPropertyOptional({ enum: ['M', 'F'] })
+  @IsOptional()
+  @IsIn(['M', 'F'])
+  gender?: string;
+  @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() address1?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() city?: string;
+  @ApiPropertyOptional({ default: 'ON' })
+  @IsOptional()
+  @IsString()
+  province?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() postalCode?: string;
+  @ApiPropertyOptional({ default: 'Canada' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() parentName?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() medicalNotes?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() jerseySize?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() previousClub?: string;
+
+  @ApiPropertyOptional({ description: 'Charge the single pay-in-full rate' })
+  @IsOptional()
+  @IsBoolean()
+  payInFull?: boolean;
+
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() consentPhoto?: boolean;
+
+  @ApiPropertyOptional({
+    default: true,
+    description:
+      'Send the family the usual registration confirmation. Turn off when you are only recording a registration that already happened elsewhere.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  sendEmail?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Why this was entered by hand — shows on the registration.',
+  })
+  @IsOptional()
+  @IsString()
+  adminNote?: string;
+}
+
 export class RecordInstallmentDto {
   @ApiProperty({ enum: [1, 2], example: 1 })
   @IsIn([1, 2])
