@@ -863,7 +863,23 @@ export class LeagueService {
       .reduce((sum, r) => sum + Number(r.feeTotal), 0);
 
     return {
-      season: { id: season.id, name: season.name },
+      // The settings travel with the list so the dashboard can show what a
+      // family registering today would be charged, and edit it, without a
+      // second request for something it already had to load.
+      season: {
+        id: season.id,
+        name: season.name,
+        feeTotal: Number(season.feeTotal),
+        feeLate: Number(season.feeLate),
+        feePayInFull:
+          season.feePayInFull === null ? null : Number(season.feePayInFull),
+        firstPaymentDue: season.firstPaymentDue,
+        secondPaymentDue: season.secondPaymentDue,
+        lateFeeFrom: season.lateFeeFrom,
+        capacityPerGroup: season.capacityPerGroup,
+        registrationOpen: season.registrationOpen,
+        installmentCount: season.installmentCount,
+      },
       totals: {
         registrations: rows.length,
         confirmed: rows.filter((r) => r.status === 'confirmed').length,
@@ -881,10 +897,55 @@ export class LeagueService {
     const registration = await this.registrationRepo.findOne({ where: { id } });
     if (!registration) throw new NotFoundException('Registration not found');
 
+    // Not a column — it decides what to write, so it must not reach the row.
+    const { resetFeesToSeason, ...fields } = dto;
+
+    if (resetFeesToSeason) {
+      // Refused rather than silently reconciled: once money is recorded, the
+      // payment row and the installment amount have to agree, and quietly
+      // moving one under the other is how a ledger stops being trustworthy.
+      if (registration.firstPaidAt || registration.secondPaidAt) {
+        throw new ConflictException(
+          'A payment is already recorded against this registration. Undo the payment first, or set the amounts by hand.',
+        );
+      }
+
+      const season = await this.seasonRepo.findOne({
+        where: { id: registration.seasonId },
+      });
+      if (!season) throw new NotFoundException('Season not found');
+
+      const singlePayment = season.installmentCount === 1;
+      const payInFull =
+        fields.payInFull ?? registration.payInFull ?? singlePayment;
+      // The season's headline on-time fee. Whether this player was new to the
+      // academy is not recorded on the row, so a new-player rate cannot be
+      // reconstructed here — set it by hand in the rare case it differs.
+      const feeTotal =
+        payInFull && !singlePayment && season.feePayInFull !== null
+          ? Number(season.feePayInFull)
+          : Number(season.feeTotal);
+      const firstAmount = payInFull
+        ? feeTotal
+        : Number((feeTotal / 2).toFixed(2));
+
+      Object.assign(registration, {
+        isLate: false,
+        feeTotal,
+        firstAmount,
+        secondAmount: payInFull
+          ? 0
+          : Number((feeTotal - firstAmount).toFixed(2)),
+        firstDueDate: season.firstPaymentDue,
+        secondDueDate: payInFull ? null : season.secondPaymentDue,
+      });
+    }
+
+    // Applied after the reset so an amount typed in the same request wins.
     Object.assign(registration, {
-      ...dto,
-      postalCode: dto.postalCode
-        ? this.normalisePostalCode(dto.postalCode)
+      ...fields,
+      postalCode: fields.postalCode
+        ? this.normalisePostalCode(fields.postalCode)
         : registration.postalCode,
     });
 

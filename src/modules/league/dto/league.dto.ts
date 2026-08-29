@@ -267,6 +267,59 @@ export class UpdateRegistrationDto {
   @ApiPropertyOptional() @IsOptional() @IsString() ageGroup?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() adminNote?: string;
 
+  // ---- money ----
+  // Editable because the fee a registration was created with can turn out to
+  // be the wrong one: a late fee charged while the deadline was being
+  // extended, a family agreeing a different split, a correction after the
+  // fact. Without these the only fix was to delete and re-register, and there
+  // is no delete.
+  @ApiPropertyOptional({ example: 900, description: 'Total fee for this player' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  feeTotal?: number;
+
+  @ApiPropertyOptional({ example: 450 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  firstAmount?: number;
+
+  @ApiPropertyOptional({ example: 450 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  secondAmount?: number;
+
+  @ApiPropertyOptional({ example: '2026-09-15' })
+  @IsOptional()
+  @IsDateString()
+  firstDueDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-10-01' })
+  @IsOptional()
+  @IsDateString()
+  secondDueDate?: string;
+
+  @ApiPropertyOptional({ description: 'Whether the late fee applies' })
+  @IsOptional()
+  @IsBoolean()
+  isLate?: boolean;
+
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() payInFull?: boolean;
+
+  /**
+   * Put this registration back on the season's standard on-time fee and due
+   * dates, clearing the late flag. The one-click fix for players who
+   * registered during a deadline extension and were charged the late rate.
+   */
+  @ApiPropertyOptional({
+    description: "Recalculate from the season's current on-time fee and dates",
+  })
+  @IsOptional()
+  @IsBoolean()
+  resetFeesToSeason?: boolean;
+
   // Correcting a typo before the roster is filed must be possible.
   @ApiPropertyOptional() @IsOptional() @IsString() firstName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() lastName?: string;
