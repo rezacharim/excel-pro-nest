@@ -313,7 +313,7 @@ export class LeagueService {
   // ------------------------------------------------------------------
 
   /** Public registration from the /league page. */
-  async register(dto: RegisterForLeagueDto) {
+  async register(dto: RegisterForLeagueDto, ip: string | null = null) {
     const season = dto.seasonId
       ? await this.seasonRepo.findOne({ where: { id: dto.seasonId } })
       : dto.slug
@@ -376,10 +376,36 @@ export class LeagueService {
       consentTerms: true,
       consentPhoto: dto.consentPhoto ?? false,
       payInFull: dto.payInFull ?? false,
+      ...this.agreementFields(dto, ip),
     });
 
     await this.sendRegistrationEmail(season, registration);
     return this.toRegistrationView(registration, season);
+  }
+
+  /**
+   * What the parent accepted, and the proof of it.
+   *
+   * The version string matters more than the booleans: it is how the exact
+   * wording a family agreed to can be reconstructed years later. A minor can
+   * bring a claim until well after they turn 18, so these rows outlive the
+   * season. Never overwrite them on a later edit.
+   */
+  private agreementFields(
+    dto: {
+      agreementVersion?: string;
+      parentSignature?: string;
+      acceptedConcussion?: boolean;
+    },
+    ip: string | null,
+  ) {
+    return {
+      agreementVersion: dto.agreementVersion ?? null,
+      parentSignature: dto.parentSignature?.trim() || null,
+      acceptedConcussion: dto.acceptedConcussion ?? null,
+      agreementAcceptedAt: dto.agreementVersion ? new Date() : null,
+      agreementIp: ip,
+    };
   }
 
   /**
@@ -388,7 +414,11 @@ export class LeagueService {
    * rather than retypes — which is also why the exported roster stops being
    * full of typos.
    */
-  async portalRegister(parentEmail: string, dto: PortalRegisterDto) {
+  async portalRegister(
+    parentEmail: string,
+    dto: PortalRegisterDto,
+    ip: string | null = null,
+  ) {
     const season = await this.getActiveSeason();
     if (!season.registrationOpen) {
       throw new BadRequestException('Registration for this season is closed.');
@@ -449,6 +479,7 @@ export class LeagueService {
       consentTerms: true,
       consentPhoto: dto.consentPhoto ?? false,
       payInFull: dto.payInFull ?? false,
+      ...this.agreementFields(dto, ip),
     });
 
     // Keep the member record in step with anything the parent just supplied.

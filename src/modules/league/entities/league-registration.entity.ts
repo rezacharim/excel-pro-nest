@@ -167,6 +167,34 @@ export class LeagueRegistration {
   @Column({ type: 'boolean', default: false })
   consentPhoto: boolean;
 
+  // ---- agreement acceptance (round 19) ----
+  // `consentTerms` above is the acceptance tick itself. These record WHICH
+  // wording was accepted, by whom, and from where. All nullable: every
+  // registration taken before the agreement shipped predates them.
+
+  /** e.g. 'league-1.0'. Bump whenever the agreement wording changes. */
+  @ApiProperty({ required: false, example: 'league-1.0' })
+  @Column({ type: 'varchar', nullable: true })
+  agreementVersion: string | null;
+
+  /** The parent's typed name. This is the signature. */
+  @ApiProperty({ required: false })
+  @Column({ type: 'varchar', nullable: true })
+  parentSignature: string | null;
+
+  @ApiProperty({ required: false })
+  @Column({ type: 'timestamp', nullable: true })
+  agreementAcceptedAt: Date | null;
+
+  @ApiProperty({ required: false })
+  @Column({ type: 'varchar', nullable: true })
+  agreementIp: string | null;
+
+  /** Rowan's Law. Valid 12 months — must be re-asked every season. */
+  @ApiProperty({ required: false })
+  @Column({ type: 'boolean', nullable: true })
+  acceptedConcussion: boolean | null;
+
   @ApiProperty({ required: false })
   @Column({ type: 'text', nullable: true })
   adminNote: string | null;
@@ -182,41 +210,3 @@ export class LeagueRegistration {
   @UpdateDateColumn()
   updatedAt: Date;
 }
-# Backend changes — excel-pro-nest
-
-Three small edits. **Every new column is nullable or has a default**, because
-`synchronize` is effectively on in production and a NOT NULL column on a
-populated table is a boot-time crash. See `claude/DANGER-typeorm-synchronize.md`.
-
----
-
-## BLOCK 1 — Entity columns
-
-Paste these columns at the end of the existing column list.
-
-```ts
-  // --- Agreement acceptance (added round 19) ---
-  // All nullable: existing rows predate the agreement and must stay valid.
-
-  @Column({ type: 'varchar', nullable: true })
-  agreementVersion: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
-  parentSignature: string | null;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  agreementAcceptedAt: Date | null;
-
-  @Column({ type: 'varchar', nullable: true })
-  agreementIp: string | null;
-
-  @Column({ type: 'boolean', nullable: true })
-  acceptedConcussion: boolean | null;
-
-  @Column({ type: 'boolean', nullable: true })
-  acceptedMedical: boolean | null;
-
-  // null = never asked (pre-agreement rows). Treat null as "no consent".
-  @Column({ type: 'boolean', nullable: true })
-  photoConsent: boolean | null;
-```

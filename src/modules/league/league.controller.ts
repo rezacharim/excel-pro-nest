@@ -44,6 +44,21 @@ import {
 // ---------------------------------------------------------------------------
 // Public — the /league and /trials pages on the website
 // ---------------------------------------------------------------------------
+/**
+ * The real client address. On Vercel the socket is the edge proxy, so the
+ * originating IP is the first entry of x-forwarded-for.
+ */
+type IpReq = {
+  headers?: Record<string, unknown>;
+  socket?: { remoteAddress?: string };
+};
+
+function clientIp(req: IpReq): string | null {
+  const fwd = req?.headers?.['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.trim()) return fwd.split(',')[0].trim();
+  return req?.socket?.remoteAddress ?? null;
+}
+
 @ApiTags('League (public)')
 @Controller('league')
 export class LeaguePublicController {
@@ -72,8 +87,8 @@ export class LeaguePublicController {
   @ApiBody({ type: RegisterForLeagueDto })
   @ApiResponse({ status: 201, description: 'Registration created' })
   @ApiResponse({ status: 409, description: 'Player already registered' })
-  register(@Body() dto: RegisterForLeagueDto) {
-    return this.leagueService.register(dto);
+  register(@Body() dto: RegisterForLeagueDto, @Req() req: IpReq) {
+    return this.leagueService.register(dto, clientIp(req));
   }
 
   @Post('trials')
@@ -108,10 +123,14 @@ export class LeaguePortalController {
   })
   @ApiBody({ type: PortalRegisterDto })
   register(
-    @Req() req: { parentEmail: string },
+    @Req() req: { parentEmail: string } & IpReq,
     @Body() dto: PortalRegisterDto,
   ) {
-    return this.leagueService.portalRegister(req.parentEmail, dto);
+    return this.leagueService.portalRegister(
+      req.parentEmail,
+      dto,
+      clientIp(req),
+    );
   }
 
   @Patch('player/:userId')
