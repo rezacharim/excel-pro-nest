@@ -182,3 +182,123 @@ export class LeagueRegistration {
   @UpdateDateColumn()
   updatedAt: Date;
 }
+# Backend changes — excel-pro-nest
+
+Three small edits. **Every new column is nullable or has a default**, because
+`synchronize` is effectively on in production and a NOT NULL column on a
+populated table is a boot-time crash. See `claude/DANGER-typeorm-synchronize.md`.
+
+---
+
+## BLOCK 1 — Entity columns
+
+Paste these columns at the end of the existing column list.
+
+```ts
+  // --- Agreement acceptance (added round 19) ---
+  // All nullable: existing rows predate the agreement and must stay valid.
+
+  @Column({ type: 'varchar', nullable: true })
+  agreementVersion: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  parentSignature: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  agreementAcceptedAt: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  agreementIp: string | null;
+
+  @Column({ type: 'boolean', nullable: true })
+  acceptedConcussion: boolean | null;
+
+  @Column({ type: 'boolean', nullable: true })
+  acceptedMedical: boolean | null;
+
+  // null = never asked (pre-agreement rows). Treat null as "no consent".
+  @Column({ type: 'boolean', nullable: true })
+  photoConsent: boolean | null;
+```
+
+---
+
+## BLOCK 2 — DTO fields
+
+```ts
+  @IsOptional() @IsString()
+  agreementVersion?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  parentSignature?: string;
+
+  @IsOptional() @IsBoolean()
+  acceptedConcussion?: boolean;
+
+  @IsOptional() @IsBoolean()
+  acceptedMedical?: boolean;
+
+  @IsOptional() @IsBoolean()
+  photoConsent?: boolean;
+```
+
+Keep them optional in the DTO. The **frontend** enforces that they are present;
+making them required here would reject any older client still in a parent's
+browser cache and produce a failed registration with no explanation.
+
+---
+
+## BLOCK 3 — Service
+
+In the registration create method, where the entity is built:
+
+```ts
+    registration.agreementVersion = dto.agreementVersion ?? null;
+    registration.parentSignature = dto.parentSignature?.trim() ?? null;
+    registration.acceptedConcussion = dto.acceptedConcussion ?? null;
+    registration.acceptedMedical = dto.acceptedMedical ?? null;
+    registration.photoConsent = dto.photoConsent ?? null;
+    registration.agreementAcceptedAt = dto.agreementVersion ? new Date() : null;
+    registration.agreementIp = ip ?? null;
+```
+
+## BLOCK 3b — Controller (replaces the existing create method)
+
+```ts
+  @Post()
+  create(@Body() dto: CreateRegistrationDto, @Req() req: Request) {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      null;
+    return this.service.create(dto, ip);
+  }
+```
+
+On Vercel the real client IP is in `x-forwarded-for`; `remoteAddress` is the
+edge proxy, so take the first entry of the header.
+
+---
+
+## BLOCK 4 — Roster export columns
+
+Wherever `Export roster` builds its rows, add:
+
+```ts
+    'Photo consent': r.photoConsent === true ? 'YES' : 'NO',
+    'Agreement': r.agreementAcceptedAt
+      ? `${r.agreementVersion} ${r.agreementAcceptedAt.toISOString().slice(0, 10)}`
+      : 'MISSING',
+```
+
+`photoConsent === true` and not `!!r.photoConsent` is deliberate: a null must
+read as NO, never as unknown-so-probably-fine. This is the column you check
+before posting a reel.
+
+---
+
+## Do NOT add a uniqueness constraint or an index on any of these
+
+Nothing queries them by value, and a unique constraint on a populated table is
+exactly what took the API down on 2026-08-16.
+
