@@ -659,3 +659,25 @@ export class UpdateTrialDto {
   @IsDateString()
   scheduledFor?: string;
 }
+ ## BLOCK 2 — DTO fields
+
+```ts
+  @IsOptional() @IsString()
+  agreementVersion?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  parentSignature?: string;
+
+  @IsOptional() @IsBoolean()
+  acceptedConcussion?: boolean;
+
+  @IsOptional() @IsBoolean()
+  acceptedMedical?: boolean;
+
+  @IsOptional() @IsBoolean()
+  photoConsent?: boolean;
+```
+
+Keep them optional in the DTO. The **frontend** enforces that they are present;
+making them required here would reject any older client still in a parent's
+browser cache and produce a failed registration with no explanation.
