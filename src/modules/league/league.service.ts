@@ -190,7 +190,8 @@ export class LeagueService {
       feePayInFull:
         season.feePayInFull === null ? null : Number(season.feePayInFull),
       registrationOpen: season.registrationOpen,
-      isLateNow: this.isLate(season),
+      isLateNow:
+        this.isLate(season) && Number(season.feeLate) > Number(season.feeTotal),
       paymentInstructions: season.paymentInstructions,
       ageGroups: groups.map((ageGroup) => {
         const capacity = overrides.get(ageGroup) ?? season.capacityPerGroup;
@@ -328,11 +329,7 @@ export class LeagueService {
     if (!dto.consentTerms) {
       throw new BadRequestException('You must accept the terms to register.');
     }
-    if (!this.ageGroupsOf(season).includes(dto.ageGroup)) {
-      throw new BadRequestException(
-        `${dto.ageGroup} is not open for ${season.name}.`,
-      );
-    }
+    dto.ageGroup = this.assertAgeGroupOpen(season, dto.ageGroup);
 
     const email = dto.email.trim().toLowerCase();
     let user: User | null;
@@ -427,6 +424,8 @@ export class LeagueService {
       throw new BadRequestException('You must accept the terms to register.');
     }
 
+    dto.ageGroup = this.assertAgeGroupOpen(season, dto.ageGroup);
+
     const user = await this.userRepo.findOne({ where: { id: dto.userId } });
     if (!user) throw new NotFoundException('Player not found');
     if ((user.email || '').toLowerCase() !== parentEmail.toLowerCase()) {
@@ -514,6 +513,7 @@ export class LeagueService {
       ? await this.seasonRepo.findOne({ where: { id: dto.seasonId } })
       : await this.getActiveSeason();
     if (!season) throw new NotFoundException('Season not found');
+    dto.ageGroup = this.assertAgeGroupOpen(season, dto.ageGroup);
 
     let user: User | null = null;
     let isNewPlayer = false;
@@ -910,6 +910,11 @@ export class LeagueService {
         capacityPerGroup: season.capacityPerGroup,
         registrationOpen: season.registrationOpen,
         installmentCount: season.installmentCount,
+        // So the dashboard can switch between League and Indoor and offer
+        // each season's own age groups.
+        slug: season.slug ?? null,
+        kind: season.kind ?? null,
+        ageGroups: this.ageGroupsOf(season),
       },
       totals: {
         registrations: rows.length,
@@ -1234,8 +1239,43 @@ export class LeagueService {
       .filter(Boolean);
   }
 
+  /**
+   * The age group must be one the season actually offers. Each season sets
+   * its own list (league: U9…U16, indoor: U5-U8…U15-U18), so this is checked
+   * here rather than against a fixed list in the DTO — a fixed list is what
+   * blocked every indoor registration in September 2026.
+   *
+   * Matching ignores case, spaces and the kind of dash, so "u5 – u8" from an
+   * old cached page still lands on "U5-U8". Returns the season's spelling.
+   */
+  private assertAgeGroupOpen(season: LeagueSeason, ageGroup: string): string {
+    const key = (v: string) =>
+      (v || '').toUpperCase().replace(/[\s\u2010-\u2015_]/g, (c) =>
+        /\s/.test(c) ? '' : '-',
+      );
+    const groups = this.ageGroupsOf(season);
+    const match = groups.find((g) => key(g) === key(ageGroup));
+    if (!match) {
+      throw new BadRequestException(
+        `Please choose one of the age groups for ${season.name}: ${groups.join(', ')}.`,
+      );
+    }
+    return match;
+  }
+
   private today(): string {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  /**
+   * A family registering after the deadline must not be emailed "pay by
+   * September 20" on September 27. Give them the date they registered on;
+   * the reminder job and the dashboard treat it like any other due date.
+   */
+  private notBeforeToday(date: string | null): string | null {
+    if (!date) return date;
+    const today = this.today();
+    return date < today ? today : date;
   }
 
   private isLate(season: LeagueSeason): boolean {
@@ -1267,7 +1307,8 @@ export class LeagueService {
     ageGroup: string,
     fallback?: string | null,
   ): SubscriptionPlan {
-    const n = parseInt((ageGroup || '').replace(/\D/g, ''), 10);
+    // First number only: "U5-U8" is the U5_U8 plan, not "58".
+    const n = parseInt((ageGroup || '').match(/\d+/)?.[0] ?? '', 10);
     if (!isNaN(n)) {
       if (n <= 8) return SubscriptionPlan.U5_U8;
       if (n <= 12) return SubscriptionPlan.U9_U12;
@@ -1386,7 +1427,16 @@ export class LeagueService {
       isNewPlayer?: boolean;
     },
   ): Promise<LeagueRegistration> {
-    const late = this.isLate(season);
+    // A late registration pays the season's late surcharge on top of its own
+    // rate. When feeLate is not above the normal fee (indoor: 380 / 380)
+    // there is no surcharge, so the family is not "late" at all — previously
+    // feeLate replaced the rate outright, which charged a new indoor player
+    // $380 instead of $835 and emailed them about a late fee.
+    const lateSurcharge = Math.max(
+      0,
+      Number(season.feeLate || 0) - Number(season.feeTotal || 0),
+    );
+    const late = this.isLate(season) && lateSurcharge > 0;
     // A one-payment season (the indoor deposit) is "pay in full" by nature.
     const singlePayment = season.installmentCount === 1;
     const payInFull = singlePayment || (data.payInFull ?? false);
@@ -1400,7 +1450,7 @@ export class LeagueService {
     const baseFee = isNewPlayer ? fees.newPlayerFee : fees.memberFee;
 
     const feeTotal = late
-      ? Number(season.feeLate) || baseFee
+      ? baseFee + lateSurcharge
       : payInFull && !singlePayment && season.feePayInFull !== null
         ? Number(season.feePayInFull)
         : baseFee;
@@ -1436,8 +1486,10 @@ export class LeagueService {
       feeTotal,
       firstAmount,
       secondAmount,
-      firstDueDate: season.firstPaymentDue,
-      secondDueDate: payInFull ? null : season.secondPaymentDue,
+      firstDueDate: this.notBeforeToday(season.firstPaymentDue),
+      secondDueDate: payInFull
+        ? null
+        : this.notBeforeToday(season.secondPaymentDue),
     });
 
     return this.registrationRepo.save(registration);

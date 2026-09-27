@@ -41,8 +41,12 @@ export class RegisterForLeagueDto {
   @IsInt()
   seasonId?: number;
 
-  @ApiProperty({ enum: AGE_GROUPS, example: 'U13' })
-  @IsIn(AGE_GROUPS as unknown as string[])
+  // Not restricted to a fixed list here: each season defines its own groups
+  // (league: U9…U16, indoor: U5-U8…U15-U18). The service checks the value
+  // against the season being registered for.
+  @ApiProperty({ example: 'U13', description: "One of the season's ageGroups" })
+  @IsString()
+  @IsNotEmpty()
   ageGroup: string;
 
   @ApiProperty({ example: 'Radin' })
@@ -182,8 +186,12 @@ export class PortalRegisterDto {
   @IsInt()
   userId: number;
 
-  @ApiProperty({ enum: AGE_GROUPS, example: 'U13' })
-  @IsIn(AGE_GROUPS as unknown as string[])
+  // Not restricted to a fixed list here: each season defines its own groups
+  // (league: U9…U16, indoor: U5-U8…U15-U18). The service checks the value
+  // against the season being registered for.
+  @ApiProperty({ example: 'U13', description: "One of the season's ageGroups" })
+  @IsString()
+  @IsNotEmpty()
   ageGroup: string;
 
   @ApiPropertyOptional()
@@ -397,8 +405,12 @@ export class AdminCreateRegistrationDto {
   @IsInt()
   userId?: number;
 
-  @ApiProperty({ enum: AGE_GROUPS, example: 'U13' })
-  @IsIn(AGE_GROUPS as unknown as string[])
+  // Not restricted to a fixed list here: each season defines its own groups
+  // (league: U9…U16, indoor: U5-U8…U15-U18). The service checks the value
+  // against the season being registered for.
+  @ApiProperty({ example: 'U13', description: "One of the season's ageGroups" })
+  @IsString()
+  @IsNotEmpty()
   ageGroup: string;
 
   // Required when userId is absent; validated in the service so the error can
