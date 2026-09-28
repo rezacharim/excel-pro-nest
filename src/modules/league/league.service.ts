@@ -1241,12 +1241,12 @@ export class LeagueService {
 
   /**
    * The age group must be one the season actually offers. Each season sets
-   * its own list (league: U9…U16, indoor: U5-U8…U15-U18), so this is checked
+   * its own list (league: U9…U16, indoor: U6-U9…U15-U18), so this is checked
    * here rather than against a fixed list in the DTO — a fixed list is what
    * blocked every indoor registration in September 2026.
    *
    * Matching ignores case, spaces and the kind of dash, so "u5 – u8" from an
-   * old cached page still lands on "U5-U8". Returns the season's spelling.
+   * old cached page still lands on "U6-U9". Returns the season's spelling.
    */
   private assertAgeGroupOpen(season: LeagueSeason, ageGroup: string): string {
     const key = (v: string) =>
@@ -1254,7 +1254,15 @@ export class LeagueService {
         /\s/.test(c) ? '' : '-',
       );
     const groups = this.ageGroupsOf(season);
-    const match = groups.find((g) => key(g) === key(ageGroup));
+    // Groups renamed for 2026/27. A page cached before the rename may still
+    // send the old name; land it on the new group when the season has it.
+    const RENAMED: Record<string, string> = {
+      'U5-U8': 'U6-U9',
+      'U9-U12': 'U10-U12',
+    };
+    const match =
+      groups.find((g) => key(g) === key(ageGroup)) ??
+      groups.find((g) => key(g) === RENAMED[key(ageGroup)]);
     if (!match) {
       throw new BadRequestException(
         `Please choose one of the age groups for ${season.name}: ${groups.join(', ')}.`,
@@ -1307,10 +1315,13 @@ export class LeagueService {
     ageGroup: string,
     fallback?: string | null,
   ): SubscriptionPlan {
-    // First number only: "U5-U8" is the U5_U8 plan, not "58".
+    // First number only: "U6-U9" is the U5_U8 plan, not "69".
+    // The plan keys are historical DB enum values; parents see them as
+    // U6–U9 / U10–U12 / U13–U14 / U15–U18 (2026/27 groups), so U9 belongs
+    // to the first plan.
     const n = parseInt((ageGroup || '').match(/\d+/)?.[0] ?? '', 10);
     if (!isNaN(n)) {
-      if (n <= 8) return SubscriptionPlan.U5_U8;
+      if (n <= 9) return SubscriptionPlan.U5_U8;
       if (n <= 12) return SubscriptionPlan.U9_U12;
       if (n <= 14) return SubscriptionPlan.U13_U14;
       return SubscriptionPlan.U15_U18;

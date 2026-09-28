@@ -42,7 +42,7 @@ export class RegisterForLeagueDto {
   seasonId?: number;
 
   // Not restricted to a fixed list here: each season defines its own groups
-  // (league: U9…U16, indoor: U5-U8…U15-U18). The service checks the value
+  // (league: U9…U16, indoor: U6-U9…U15-U18). The service checks the value
   // against the season being registered for.
   @ApiProperty({ example: 'U13', description: "One of the season's ageGroups" })
   @IsString()
@@ -187,7 +187,7 @@ export class PortalRegisterDto {
   userId: number;
 
   // Not restricted to a fixed list here: each season defines its own groups
-  // (league: U9…U16, indoor: U5-U8…U15-U18). The service checks the value
+  // (league: U9…U16, indoor: U6-U9…U15-U18). The service checks the value
   // against the season being registered for.
   @ApiProperty({ example: 'U13', description: "One of the season's ageGroups" })
   @IsString()
@@ -406,7 +406,7 @@ export class AdminCreateRegistrationDto {
   userId?: number;
 
   // Not restricted to a fixed list here: each season defines its own groups
-  // (league: U9…U16, indoor: U5-U8…U15-U18). The service checks the value
+  // (league: U9…U16, indoor: U6-U9…U15-U18). The service checks the value
   // against the season being registered for.
   @ApiProperty({ example: 'U13', description: "One of the season's ageGroups" })
   @IsString()
