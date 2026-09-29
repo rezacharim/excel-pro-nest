@@ -465,6 +465,14 @@ export class MembershipService {
             if (!dto.plan) throw new Error('No program given');
             await this.setPlan(userId, dto.plan);
             break;
+          case 'set-period':
+            if (!dto.endDate) throw new Error('No end date given');
+            await this.setRenewalDate(userId, {
+              date: dto.endDate,
+              startDate: dto.startDate,
+              note: dto.note,
+            });
+            break;
           default:
             throw new Error(`Unknown action ${dto.action}`);
         }

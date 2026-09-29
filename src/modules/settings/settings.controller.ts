@@ -6,6 +6,8 @@ import {
   IsInt,
   IsNumber,
   IsOptional,
+  IsString,
+  Matches,
   Max,
   Min,
 } from 'class-validator';
@@ -24,6 +26,13 @@ export class UpdateSettingsDto {
   @IsOptional() @IsBoolean() remindersPaused?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(90)
   autoSuspendDays?: number;
+  /** Comma-separated addresses told about new registrations and e-transfers. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\s*$|^\s*[^\s@,]+@[^\s@,]+\.[^\s@,]+(\s*,\s*[^\s@,]+@[^\s@,]+\.[^\s@,]+)*\s*$/, {
+    message: 'Notification emails must be email addresses separated by commas',
+  })
+  notifyEmails?: string;
 }
 
 @ApiTags('Settings')

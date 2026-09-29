@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { SettingsService } from '../settings/settings.service';
 import * as nodemailer from 'nodemailer';
 
 const BRAND_RED = '#E43125';
@@ -37,7 +38,7 @@ export class MailService {
   private readonly from: string;
   private readonly adminEmails: string[];
 
-  constructor() {
+  constructor(@Optional() private readonly settings?: SettingsService) {
     const host = process.env.SMTP_HOST;
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
@@ -77,6 +78,72 @@ export class MailService {
 
   get isEnabled(): boolean {
     return this.transporter !== null;
+  }
+
+  /**
+   * Everyone who should hear about registrations and payments: the addresses
+   * saved in Dashboard → Settings ("Notification emails") plus ADMIN_EMAILS
+   * from the server environment. De-duplicated, case-insensitive.
+   */
+  private async adminRecipients(): Promise<string[]> {
+    let fromSettings: string[] = [];
+    try {
+      const all = await this.settings?.getAll();
+      fromSettings = (all?.notifyEmails || '').split(',');
+    } catch (error) {
+      this.logger.warn(`Could not read notification emails: ${error.message}`);
+    }
+    const seen = new Set<string>();
+    return [...fromSettings, ...this.adminEmails]
+      .map((e) => e.trim())
+      .filter((e) => {
+        const k = e.toLowerCase();
+        if (!e || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+  }
+
+  /**
+   * "New registration" / "e-transfer started" alert to the academy. One table
+   * of facts, written so the e-transfer in the bank can be matched to it.
+   */
+  async sendAdminAlert(
+    subject: string,
+    heading: string,
+    intro: string,
+    details: Record<string, string | number | null | undefined>,
+  ): Promise<boolean> {
+    try {
+      const to = await this.adminRecipients();
+      if (to.length === 0) {
+        this.logger.warn(`Admin alert skipped (no notification emails): ${subject}`);
+        return false;
+      }
+      const esc = (v: unknown) =>
+        String(v ?? '-')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      const rows = Object.entries(details)
+        .map(
+          ([k, v]) => `
+            <tr>
+              <td style="padding:8px 12px;border:1px solid #e5e5ea;font-weight:bold;color:${BRAND_NAVY};white-space:nowrap;">${esc(k)}</td>
+              <td style="padding:8px 12px;border:1px solid #e5e5ea;">${esc(v)}</td>
+            </tr>`,
+        )
+        .join('');
+      const body = `
+        ${this.heading(heading)}
+        <p>${intro}</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;margin:16px 0;">${rows}</table>
+        <p style="font-size:13px;color:#777;">You receive this because your address is in Dashboard &rarr; Settings &rarr; Notification emails.</p>`;
+      return await this.send(to, subject, this.layout(heading, body));
+    } catch (error) {
+      this.logger.error(`sendAdminAlert failed: ${error.message}`);
+      return false;
+    }
   }
 
   /**
@@ -578,8 +645,9 @@ export class MailService {
     details: Record<string, string | null | undefined>,
   ): Promise<boolean> {
     try {
-      if (this.adminEmails.length === 0) {
-        this.logger.warn('sendAdminRequestNotice skipped: ADMIN_EMAILS not set');
+      const adminTo = await this.adminRecipients();
+      if (adminTo.length === 0) {
+        this.logger.warn('sendAdminRequestNotice skipped: no notification emails');
         return false;
       }
 
@@ -615,7 +683,7 @@ export class MailService {
         <p>Please review this request in the admin dashboard and follow up with the parent.</p>`;
 
       return await this.send(
-        this.adminEmails,
+        adminTo,
         `Parent portal: ${label} - ${playerName}`,
         this.layout(label, body),
       );
@@ -681,8 +749,9 @@ export class MailService {
     overdueList: AdminDigestRow[],
   ): Promise<boolean> {
     try {
-      if (this.adminEmails.length === 0) {
-        this.logger.warn('sendAdminDigest skipped: ADMIN_EMAILS not set');
+      const adminTo = await this.adminRecipients();
+      if (adminTo.length === 0) {
+        this.logger.warn('sendAdminDigest skipped: no notification emails');
         return false;
       }
 
@@ -728,7 +797,7 @@ export class MailService {
         ${renderTable(overdueList)}`;
 
       return await this.send(
-        this.adminEmails,
+        adminTo,
         `Membership digest: ${dueSoonList.length} due soon, ${overdueList.length} overdue`,
         this.layout('Daily Membership Digest', body),
       );

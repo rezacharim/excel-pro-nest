@@ -72,6 +72,9 @@ export const BULK_ACTIONS = [
   'reactivate',
   'suspend',
   'set-plan',
+  // Paper-to-website migration: record the period many families already
+  // paid for outside the dashboard, in one go.
+  'set-period',
 ] as const;
 
 export class BulkActionDto {
@@ -92,6 +95,22 @@ export class BulkActionDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiPropertyOptional({
+    description: 'Paid-up-to date, when action is set-period',
+    example: '2026-12-05',
+  })
+  @IsOptional()
+  @IsISO8601()
+  endDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Start of the paid period, when action is set-period',
+    example: '2026-10-05',
+  })
+  @IsOptional()
+  @IsISO8601()
+  startDate?: string;
 
   @ApiPropertyOptional({ description: 'Program, when action is set-plan' })
   @IsOptional()

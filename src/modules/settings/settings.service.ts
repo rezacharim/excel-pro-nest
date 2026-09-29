@@ -25,6 +25,12 @@ export interface AcademySettings {
    * Collections screen. Those must keep working at all times.
    */
   remindersPaused: boolean;
+  /**
+   * Who is told about new registrations and e-transfers, comma separated.
+   * Edited in Dashboard → Settings. Used so the academy can match money
+   * arriving in the bank to the family that just signed up.
+   */
+  notifyEmails: string;
 }
 
 export const DEFAULT_SETTINGS: AcademySettings = {
@@ -38,6 +44,7 @@ export const DEFAULT_SETTINGS: AcademySettings = {
   // Starts PAUSED so no family is emailed automatically while the academy is
   // still correcting old records. The owner switches it on when ready.
   remindersPaused: true,
+  notifyEmails: 'excelprosocceracademy@gmail.com',
 };
 
 @Injectable()
@@ -74,6 +81,10 @@ export class SettingsService {
         remindersPaused:
           (stored.get('remindersPaused') ??
             String(DEFAULT_SETTINGS.remindersPaused)) === 'true',
+        // An empty string is a deliberate "tell nobody", so only a missing
+        // row falls back to the default.
+        notifyEmails:
+          stored.get('notifyEmails') ?? DEFAULT_SETTINGS.notifyEmails,
       };
     } catch (error) {
       // Table missing (migration not run yet) must not break the API.

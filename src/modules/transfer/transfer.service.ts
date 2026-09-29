@@ -132,6 +132,34 @@ export class TransferService {
       console.error('❌ Payment instructions email failed (ignored) –', error.message);
     }
 
+    // Tell the academy a family has just signed up / started a payment, so
+    // the e-transfer can be matched even if the parent never clicks
+    // "I've sent it" (which is exactly how payments went missing).
+    try {
+      await this.mailService.sendAdminAlert(
+        `New sign-up: ${user.fullname} - expect $${Number(savedTransfer.amount).toFixed(0)}`,
+        savedTransfer.isFirstTimePayment ? 'New member sign-up' : 'Renewal started',
+        `<strong>${user.fullname}</strong> ${
+          savedTransfer.isFirstTimePayment
+            ? 'just registered on the website'
+            : 'started a renewal payment'
+        } and was asked to send an e-transfer.`,
+        {
+          Player: user.fullname,
+          Parent: user.parent_name,
+          Email: user.email,
+          Phone: user.phone_number,
+          Program: String(savedTransfer.plan),
+          'Amount to expect': `$${Number(savedTransfer.amount).toFixed(2)}`,
+          'First payment': savedTransfer.isFirstTimePayment ? 'Yes ($75 uniform included)' : 'No',
+          'Where to approve it':
+            'Dashboard -> Payments (use "Money received" if the parent never confirmed)',
+        },
+      );
+    } catch (error) {
+      console.error('❌ Academy sign-up alert failed (ignored) –', error.message);
+    }
+
     return savedTransfer;
   }
 

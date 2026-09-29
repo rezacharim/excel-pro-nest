@@ -377,6 +377,10 @@ export class LeagueService {
     });
 
     await this.sendRegistrationEmail(season, registration);
+    await this.notifyAcademy(season, registration, {
+      via: 'website form',
+      isNewPlayer,
+    });
     return this.toRegistrationView(registration, season);
   }
 
@@ -492,6 +496,10 @@ export class LeagueService {
     await this.userRepo.save(user);
 
     await this.sendRegistrationEmail(season, registration);
+    await this.notifyAcademy(season, registration, {
+      via: 'parent account',
+      isNewPlayer: false,
+    });
     return this.toRegistrationView(registration, season);
   }
 
@@ -1528,6 +1536,46 @@ export class LeagueService {
     }
 
     return savedRegistration;
+  }
+
+  /**
+   * Tell the academy (Dashboard → Settings → Notification emails) that a
+   * family registered and how much to expect, with the exact e-transfer
+   * message the parent was told to use — so the money can be matched.
+   */
+  private async notifyAcademy(
+    season: LeagueSeason,
+    r: LeagueRegistration,
+    opts: { via: string; isNewPlayer: boolean },
+  ) {
+    try {
+      const player = `${r.firstName} ${r.lastName}`.trim();
+      const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
+      await this.mailService.sendAdminAlert(
+        `New registration: ${player} - ${season.name} ${r.ageGroup}`,
+        'New registration',
+        `<strong>${player}</strong> just registered for <strong>${season.name}</strong> (${r.ageGroup}) through the ${opts.via}.`,
+        {
+          Player: player,
+          'Age group': r.ageGroup,
+          'Date of birth': r.dateOfBirth,
+          Parent: r.parentName,
+          Email: r.email,
+          Phone: r.phone,
+          'New to the academy': opts.isNewPlayer ? 'Yes' : 'No (existing member)',
+          Status:
+            r.status === 'waitlist'
+              ? 'Waiting list - age group full, told NOT to pay yet'
+              : 'Awaiting payment',
+          'Amount to expect now': r.status === 'waitlist' ? '-' : money(r.firstAmount),
+          'Season total': money(r.feeTotal),
+          'E-transfer message they were told to use': `${player} - ${r.ageGroup}`,
+          'Where to record it': 'Dashboard -> League -> choose the season -> Record payment',
+        },
+      );
+    } catch (error) {
+      this.logger.error(`Academy registration alert failed: ${error.message}`);
+    }
   }
 
   private async sendRegistrationEmail(
