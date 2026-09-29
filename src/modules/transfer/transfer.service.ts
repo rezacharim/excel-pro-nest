@@ -225,7 +225,17 @@ export class TransferService {
       throw new NotFoundException(`User with ID ${transfer.userId} not found`);
     }
 
-    if (transfer.status !== TransferStatus.CONFIRMED) {
+    // The admin is the one who can see the bank account, so the admin decides.
+    // A parent who sends the e-transfer but never clicks "I've sent it" leaves
+    // the request PENDING, and after 48 hours it turns EXPIRED — the money is
+    // in the account but the transfer could never be approved, so the player
+    // never showed as paid (ali hosseini, Sept 2026). Allow approving those.
+    const verifiable: TransferStatus[] = [
+      TransferStatus.CONFIRMED,
+      TransferStatus.PENDING,
+      TransferStatus.EXPIRED,
+    ];
+    if (!verifiable.includes(transfer.status)) {
       throw new BadRequestException(
         `Cannot verify transfer with status: ${transfer.status}`,
       );

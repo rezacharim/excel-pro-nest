@@ -8,6 +8,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
+import { LeagueRegistration } from '../league/entities/league-registration.entity';
+import { LeagueSeason } from '../league/entities/league-season.entity';
 import { Payment } from '../payment/entities/payment.entity';
 import { PaymentStatus } from '../payment/entities/enums/payment-status.enum';
 import {
@@ -57,6 +59,25 @@ export interface MembershipOverviewRow {
   dateOfBirth: string | null;
   medicalNotes: string | null;
   invitedAt: Date | null;
+  /** Winter League / Indoor registrations for this player, newest first. */
+  programs: MemberProgram[];
+}
+
+/**
+ * A season registration (Winter League, Indoor…) shown on the member's row,
+ * so the Memberships screen answers "is this child registered and paid?"
+ * without switching to Dashboard → League.
+ */
+export interface MemberProgram {
+  registrationId: number;
+  seasonId: number;
+  seasonName: string;
+  kind: string | null;
+  ageGroup: string;
+  status: string;
+  feeTotal: number;
+  amountPaid: number;
+  balance: number;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -107,6 +128,9 @@ export class MembershipService {
       dateOfBirth: user.dateOfBirth ?? null,
       medicalNotes: user.medicalNotes ?? null,
       invitedAt: user.invitedAt ?? null,
+      // Filled in by getOverview; single-row responses leave it empty and the
+      // dashboard keeps the list it already has.
+      programs: [],
     };
   }
 
@@ -121,7 +145,11 @@ export class MembershipService {
   async getOverview(): Promise<MembershipOverviewRow[]> {
     const users = await this.userRepository.find();
     const now = new Date();
-    const rows = users.map((u) => this.toOverviewRow(u, now));
+    const programsByUser = await this.programsByUser();
+    const rows = users.map((u) => ({
+      ...this.toOverviewRow(u, now),
+      programs: programsByUser.get(u.id) ?? [],
+    }));
 
     // Overdue first, then by end date ascending; users without an end date last
     rows.sort((a, b) => {
@@ -136,6 +164,50 @@ export class MembershipService {
     });
 
     return rows;
+  }
+
+  /**
+   * Every non-withdrawn season registration, grouped by player. Read through
+   * the entity manager so this module needs no new repository wiring — and no
+   * schema change: both tables already exist.
+   */
+  private async programsByUser(): Promise<Map<number, MemberProgram[]>> {
+    const map = new Map<number, MemberProgram[]>();
+    try {
+      const manager = this.userRepository.manager;
+      const [regs, seasons] = await Promise.all([
+        manager.getRepository(LeagueRegistration).find({
+          order: { id: 'DESC' },
+        }),
+        manager.getRepository(LeagueSeason).find(),
+      ]);
+      const seasonById = new Map(seasons.map((s) => [s.id, s]));
+      for (const r of regs) {
+        if (!r.userId || r.status === 'withdrawn') continue;
+        const season = seasonById.get(r.seasonId);
+        const paid =
+          (r.firstPaidAt ? Number(r.firstAmount) : 0) +
+          (r.secondPaidAt ? Number(r.secondAmount) : 0);
+        const fee = Number(r.feeTotal);
+        const list = map.get(r.userId) ?? [];
+        list.push({
+          registrationId: r.id,
+          seasonId: r.seasonId,
+          seasonName: season?.name ?? 'Season',
+          kind: season?.kind ?? null,
+          ageGroup: r.ageGroup,
+          status: r.status,
+          feeTotal: fee,
+          amountPaid: Number(paid.toFixed(2)),
+          balance: Number((fee - paid).toFixed(2)),
+        });
+        map.set(r.userId, list);
+      }
+    } catch (error) {
+      // The overview must still load if the league tables are unreachable.
+      this.logger.error(`Could not load season registrations: ${error.message}`);
+    }
+    return map;
   }
 
   async hold(

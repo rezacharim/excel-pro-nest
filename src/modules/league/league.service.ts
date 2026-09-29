@@ -1503,7 +1503,31 @@ export class LeagueService {
         : this.notBeforeToday(season.secondPaymentDue),
     });
 
-    return this.registrationRepo.save(registration);
+    const savedRegistration = await this.registrationRepo.save(registration);
+
+    // A family found by email but saved long ago with a placeholder plan
+    // ("free") showed as "Not set" in Memberships even though the child had
+    // just registered for a season. Give them the program their age group
+    // belongs to; a real plan already on the record is left alone.
+    if (data.userId) {
+      try {
+        const user = await this.userRepo.findOne({ where: { id: data.userId } });
+        const realPlans = [
+          SubscriptionPlan.U5_U8,
+          SubscriptionPlan.U9_U12,
+          SubscriptionPlan.U13_U14,
+          SubscriptionPlan.U15_U18,
+        ] as string[];
+        if (user && !realPlans.includes(user.activePlan as string)) {
+          user.activePlan = this.planForAgeGroup(data.ageGroup);
+          await this.userRepo.save(user);
+        }
+      } catch (error) {
+        this.logger.error(`Could not set plan for user ${data.userId}: ${error.message}`);
+      }
+    }
+
+    return savedRegistration;
   }
 
   private async sendRegistrationEmail(
