@@ -82,6 +82,35 @@ export interface MemberProgram {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/**
+ * A calendar day typed in the dashboard ("2026-12-21") stored as noon UTC.
+ *
+ * `new Date("2026-12-21")` is midnight UTC, which is the previous evening in
+ * Toronto — so a renewal date saved as Dec 21 came back on screen as Dec 20,
+ * and a payment received on the 1st was counted in the previous month. Noon
+ * UTC is the same calendar day everywhere from Hawaii to New Zealand.
+ * Full timestamps are passed through unchanged.
+ */
+export const parseCalendarDay = (value: string): Date => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T12:00:00.000Z`);
+  }
+  return new Date(value);
+};
+
+/** Add whole months without spilling over: Jan 31 + 1 month = Feb 28/29. */
+const addMonthsClamped = (date: Date, months: number): Date => {
+  const result = new Date(date);
+  const day = result.getUTCDate();
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDay = new Date(
+    Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDay));
+  return result;
+};
+
 @Injectable()
 export class MembershipService {
   private readonly logger = new Logger(MembershipService.name);
@@ -330,7 +359,7 @@ export class MembershipService {
     dto: SetRenewalDateDto,
   ): Promise<MembershipOverviewRow> {
     const user = await this.getUserOrFail(userId);
-    const date = new Date(dto.date);
+    const date = parseCalendarDay(dto.date);
     if (isNaN(date.getTime())) {
       throw new BadRequestException('Invalid date');
     }
@@ -338,7 +367,7 @@ export class MembershipService {
     user.currentSubscriptionEndDate = date;
 
     if (dto.startDate) {
-      const start = new Date(dto.startDate);
+      const start = parseCalendarDay(dto.startDate);
       if (isNaN(start.getTime())) {
         throw new BadRequestException('Invalid start date');
       }
@@ -703,20 +732,40 @@ export class MembershipService {
 
     // A back-dated entry (money taken weeks ago by cash) should count in the
     // month it was actually received, not today.
-    const paidAt = dto.paidAt ? new Date(dto.paidAt) : now;
+    const paidAt = dto.paidAt ? parseCalendarDay(dto.paidAt) : now;
     const paidAtValid = !isNaN(paidAt.getTime()) ? paidAt : now;
 
-    // Normally a renewal extends from the current end date so early payers
-    // never lose paid days. When catching up on old cash payments the admin
-    // can instead start the period at the payment date.
-    const base = dto.startFromPaymentDate
-      ? new Date(paidAtValid)
-      : user.currentSubscriptionEndDate &&
-          new Date(user.currentSubscriptionEndDate) > now
-        ? new Date(user.currentSubscriptionEndDate)
-        : new Date(now);
-    const newEnd = new Date(base);
-    newEnd.setMonth(newEnd.getMonth() + months);
+    // The dashboard's date picker sends the exact period the admin chose —
+    // any start, any end, not only whole months — so what they saw in the
+    // preview is exactly what is saved and what the receipt email states.
+    let base: Date;
+    let newEnd: Date;
+    if (dto.periodEnd) {
+      newEnd = parseCalendarDay(dto.periodEnd);
+      if (isNaN(newEnd.getTime())) {
+        throw new BadRequestException('Invalid paid-until date');
+      }
+      base = dto.periodStart ? parseCalendarDay(dto.periodStart) : new Date(now);
+      if (isNaN(base.getTime())) {
+        throw new BadRequestException('Invalid period start date');
+      }
+      if (base > newEnd) {
+        throw new BadRequestException(
+          'The period cannot start after it ends. Please check the dates.',
+        );
+      }
+    } else {
+      // Normally a renewal extends from the current end date so early payers
+      // never lose paid days. When catching up on old cash payments the admin
+      // can instead start the period at the payment date.
+      base = dto.startFromPaymentDate
+        ? new Date(paidAtValid)
+        : user.currentSubscriptionEndDate &&
+            new Date(user.currentSubscriptionEndDate) > now
+          ? new Date(user.currentSubscriptionEndDate)
+          : new Date(now);
+      newEnd = addMonthsClamped(base, months);
+    }
 
     const payment = this.paymentRepository.create({
       amount,

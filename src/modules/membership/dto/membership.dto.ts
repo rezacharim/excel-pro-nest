@@ -328,6 +328,24 @@ export class RecordPaymentDto {
   @IsOptional()
   @IsBoolean()
   startFromPaymentDate?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'First day of the paid period, YYYY-MM-DD. Sent by the dashboard date picker together with periodEnd; when both are given they are used exactly and `months` / `startFromPaymentDate` are ignored.',
+    example: '2026-10-21',
+  })
+  @IsOptional()
+  @IsISO8601()
+  periodStart?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Last paid day (the new renewal date), YYYY-MM-DD. Lets the admin pick any custom end date instead of a whole number of months.',
+    example: '2026-12-21',
+  })
+  @IsOptional()
+  @IsISO8601()
+  periodEnd?: string;
 }
 
 /**
