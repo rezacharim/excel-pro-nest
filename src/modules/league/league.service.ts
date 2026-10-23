@@ -1232,7 +1232,7 @@ export class LeagueService {
       previousClub: dto.previousClub?.trim() ?? null,
       position: dto.position ?? null,
       preferredWhen: dto.preferredWhen?.trim() ?? null,
-      howHeard: dto.howHeard?.trim() ?? null,
+      howHeard: (await this.referralNote(dto)) ?? dto.howHeard?.trim() ?? null,
       status: 'booked',
     });
     const saved = await this.trialRepo.save(booking);
@@ -1312,6 +1312,21 @@ export class LeagueService {
     }
     trial.scheduledFor = when;
     return this.trialRepo.save(trial);
+  }
+
+  /**
+   * "Bring a friend": a booking made through a family's shared link records
+   * who sent it, e.g. "Friend of Neda Rahimi (Kian Rahimi)". An id that does
+   * not match a player is ignored and the family's own answer is kept.
+   */
+  private async referralNote(dto: BookTrialDto): Promise<string | null> {
+    if (!dto.referrerId) return null;
+    const ref = await this.userRepo.findOne({ where: { id: dto.referrerId } });
+    if (!ref) return null;
+    const parent = (ref.parent_name || '').trim();
+    return parent
+      ? `Friend of ${parent} (${ref.fullname})`
+      : `Friend of ${ref.fullname}'s family`;
   }
 
   async listTrials(status?: string) {

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
@@ -695,6 +696,15 @@ export class BookTrialDto {
   @IsString()
   preferredWhen?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() howHeard?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Player id of the family who shared a "bring a friend" link. Recorded as "Friend of <parent> (<child>)" in howHeard.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  referrerId?: number;
 }
 
 export class UpdateTrialDto {
