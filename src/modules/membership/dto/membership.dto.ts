@@ -78,7 +78,10 @@ export const BULK_ACTIONS = [
 ] as const;
 
 export class BulkActionDto {
-  @ApiProperty({ description: 'Players to apply the action to', type: [Number] })
+  @ApiProperty({
+    description: 'Players to apply the action to',
+    type: [Number],
+  })
   @IsArray()
   @ArrayNotEmpty()
   @Type(() => Number)
@@ -177,7 +180,10 @@ export class QuickAddPlayerDto {
 }
 
 export class InviteParentsDto {
-  @ApiProperty({ description: 'Players whose parents should be invited', type: [Number] })
+  @ApiProperty({
+    description: 'Players whose parents should be invited',
+    type: [Number],
+  })
   @IsArray()
   @ArrayNotEmpty()
   @Type(() => Number)
@@ -187,6 +193,41 @@ export class InviteParentsDto {
   @ApiPropertyOptional({
     description:
       'Send again to families already invited. Off by default so nobody is emailed twice by accident.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  resend?: boolean;
+}
+
+/**
+ * Invitation type 1 — "come back for a free session", for families who left
+ * for any reason. Sent from Dashboard → Memberships to ticked players.
+ */
+export class InviteBackDto {
+  @ApiProperty({ type: [Number] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  userIds: number[];
+
+  @ApiProperty({ example: 'Richmond Hill Green Dome' })
+  @IsString()
+  where: string;
+
+  @ApiProperty({
+    example: 'https://www.excelproso.com/trials?for=free&src=comeback',
+  })
+  @IsString()
+  bookUrl: string;
+
+  @ApiPropertyOptional({ description: 'Optional personal line from Reza' })
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @ApiPropertyOptional({
+    description: 'Send even to families invited back in the last 30 days',
   })
   @IsOptional()
   @IsBoolean()

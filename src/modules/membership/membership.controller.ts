@@ -35,6 +35,7 @@ import {
   BulkActionDto,
   QuickAddPlayerDto,
   InviteParentsDto,
+  InviteBackDto,
 } from './dto/membership.dto';
 
 @ApiTags('Membership')
@@ -59,17 +60,11 @@ export class MembershipController {
   @Get('export/emails')
   @ApiOperation({ summary: 'Export member contact list as CSV' })
   @ApiQuery({ name: 'format', required: false, example: 'csv' })
-  async exportEmails(
-    @Res() res: Response,
-    @Query('format') format?: string,
-  ) {
+  async exportEmails(@Res() res: Response, @Query('format') format?: string) {
     const csv = await this.membershipService.exportEmailsCsv();
     const filename = `excel-pro-members-${new Date().toISOString().slice(0, 10)}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
   }
 
@@ -81,7 +76,8 @@ export class MembershipController {
   @ApiBody({ type: ImportPlayersDto })
   @ApiResponse({
     status: 201,
-    description: '{ created, createdIds, skipped: [{ index, fullname?, reason }] }',
+    description:
+      '{ created, createdIds, skipped: [{ index, fullname?, reason }] }',
   })
   import(@Body() dto: ImportPlayersDto) {
     return this.membershipService.importPlayers(dto);
@@ -134,7 +130,8 @@ export class MembershipController {
 
   @Post('players')
   @ApiOperation({
-    summary: 'Add a player by hand (walk-ins, or members who joined pre-website)',
+    summary:
+      'Add a player by hand (walk-ins, or members who joined pre-website)',
   })
   @ApiBody({ type: QuickAddPlayerDto })
   quickAddPlayer(@Body() dto: QuickAddPlayerDto) {
@@ -150,9 +147,20 @@ export class MembershipController {
     return this.membershipService.inviteParents(dto);
   }
 
+  @Post('invite-back')
+  @ApiOperation({
+    summary:
+      'Invite families who left to a free session (one email per family)',
+  })
+  @ApiBody({ type: InviteBackDto })
+  inviteBack(@Body() dto: InviteBackDto) {
+    return this.membershipService.inviteBack(dto);
+  }
+
   @Post('bulk')
   @ApiOperation({
-    summary: 'Apply one action (stop / reactivate / suspend / set-plan) to many players',
+    summary:
+      'Apply one action (stop / reactivate / suspend / set-plan) to many players',
   })
   @ApiBody({ type: BulkActionDto })
   bulkAction(@Body() dto: BulkActionDto) {

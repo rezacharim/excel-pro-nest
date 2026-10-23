@@ -33,6 +33,7 @@ import {
   RegisterForLeagueDto,
   UpdateRegistrationDto,
   UpdateTrialDto,
+  SendTrialInvitationDto,
 } from './dto/league.dto';
 
 /** Statuses that occupy a roster spot. */
@@ -227,7 +228,8 @@ export class LeagueService {
     ];
 
     const newLines = [...memberLines];
-    if (firstTerm) newLines.push({ label: 'First 2 months', amount: firstTerm });
+    if (firstTerm)
+      newLines.push({ label: 'First 2 months', amount: firstTerm });
     if (uniform) {
       newLines.push({
         label: 'Uniform (one-time, collected at first practice)',
@@ -295,8 +297,10 @@ export class LeagueService {
         };
 
       case 'status':
-        if (filled >= 0.8) return { label: 'Almost full', tone: 'low', show: true };
-        if (filled >= 0.5) return { label: 'Filling fast', tone: 'medium', show: true };
+        if (filled >= 0.8)
+          return { label: 'Almost full', tone: 'low', show: true };
+        if (filled >= 0.5)
+          return { label: 'Filling fast', tone: 'medium', show: true };
         return { label: 'Open', tone: 'ok', show: true };
 
       case 'threshold':
@@ -440,7 +444,7 @@ export class LeagueService {
     const dateOfBirth = dto.dateOfBirth ?? user.dateOfBirth ?? null;
     if (!dateOfBirth) {
       throw new BadRequestException(
-        "This player has no date of birth on file, and the league requires one. Please add it.",
+        'This player has no date of birth on file, and the league requires one. Please add it.',
       );
     }
 
@@ -737,7 +741,10 @@ export class LeagueService {
     }>,
   ) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user || (user.email || '').toLowerCase() !== parentEmail.toLowerCase()) {
+    if (
+      !user ||
+      (user.email || '').toLowerCase() !== parentEmail.toLowerCase()
+    ) {
       throw new NotFoundException('Player not found');
     }
 
@@ -745,16 +752,19 @@ export class LeagueService {
     const last = dto.lastName?.trim();
     if (first || last) {
       const [curFirst, ...curRest] = (user.fullname || '').trim().split(/\s+/);
-      user.fullname = `${first || curFirst || ''} ${last ?? curRest.join(' ')}`.trim();
+      user.fullname =
+        `${first || curFirst || ''} ${last ?? curRest.join(' ')}`.trim();
     }
     if (dto.dateOfBirth) user.dateOfBirth = dto.dateOfBirth;
     if (dto.gender) user.gender = this.mapGender(dto.gender);
     if (dto.phone) user.phone_number = dto.phone.trim();
     if (dto.address1) user.address = dto.address1.trim();
     if (dto.city) user.city = dto.city.trim();
-    if (dto.postalCode) user.postalCode = this.normalisePostalCode(dto.postalCode);
+    if (dto.postalCode)
+      user.postalCode = this.normalisePostalCode(dto.postalCode);
     if (dto.parentName) user.parent_name = dto.parentName.trim();
-    if (dto.medicalNotes !== undefined) user.medicalNotes = dto.medicalNotes || null;
+    if (dto.medicalNotes !== undefined)
+      user.medicalNotes = dto.medicalNotes || null;
     if (dto.emergencyContactName) {
       user.emergencyContactName = dto.emergencyContactName.trim();
     }
@@ -813,7 +823,9 @@ export class LeagueService {
     const email = parentEmail.toLowerCase();
     const fullname = `${dto.firstName.trim()} ${dto.lastName.trim()}`.trim();
 
-    const existing = await this.userRepo.findOne({ where: { email, fullname } });
+    const existing = await this.userRepo.findOne({
+      where: { email, fullname },
+    });
     if (existing) {
       throw new ConflictException(
         `${fullname} is already on your account. Refresh the page to see them.`,
@@ -1029,7 +1041,10 @@ export class LeagueService {
       const user = await this.userRepo.findOne({
         where: { id: registration.userId },
       });
-      const plan = this.planForAgeGroup(registration.ageGroup, user?.activePlan);
+      const plan = this.planForAgeGroup(
+        registration.ageGroup,
+        user?.activePlan,
+      );
       const season = await this.seasonRepo.findOne({
         where: { id: registration.seasonId },
       });
@@ -1041,9 +1056,10 @@ export class LeagueService {
         method: dto.method ?? 'etransfer',
         type: 'league',
         periodLabel: `${season?.name ?? 'League'} - ${first ? '1st' : '2nd'} payment`,
-        note: [dto.reference ? `Ref ${dto.reference}` : null, dto.note]
-          .filter(Boolean)
-          .join(' | ') || null,
+        note:
+          [dto.reference ? `Ref ${dto.reference}` : null, dto.note]
+            .filter(Boolean)
+            .join(' | ') || null,
         userId: registration.userId,
         isFirstTimePayment: false,
         createdAt: paidAt,
@@ -1074,7 +1090,10 @@ export class LeagueService {
         `${saved.firstName} ${saved.lastName}`,
         amount,
         null,
-        { type: 'league', periodLabel: `${first ? '1st' : '2nd'} league payment` },
+        {
+          type: 'league',
+          periodLabel: `${first ? '1st' : '2nd'} league payment`,
+        },
       );
     } catch (error) {
       this.logger.error(`League receipt email failed: ${error.message}`);
@@ -1118,7 +1137,10 @@ export class LeagueService {
     if (!season) return [];
 
     const rows = await this.registrationRepo.find({
-      where: { seasonId: season.id, status: Not(In(['withdrawn', 'waitlist'])) },
+      where: {
+        seasonId: season.id,
+        status: Not(In(['withdrawn', 'waitlist'])),
+      },
       order: { ageGroup: 'ASC', lastName: 'ASC' },
     });
 
@@ -1127,10 +1149,18 @@ export class LeagueService {
       .flatMap((r) => {
         const items: any[] = [];
         if (!r.firstPaidAt) {
-          items.push({ installment: 1, amount: Number(r.firstAmount), due: r.firstDueDate });
+          items.push({
+            installment: 1,
+            amount: Number(r.firstAmount),
+            due: r.firstDueDate,
+          });
         }
         if (!r.secondPaidAt && !r.payInFull) {
-          items.push({ installment: 2, amount: Number(r.secondAmount), due: r.secondDueDate });
+          items.push({
+            installment: 2,
+            amount: Number(r.secondAmount),
+            due: r.secondDueDate,
+          });
         }
         return items.map((i) => ({
           registrationId: r.id,
@@ -1142,9 +1172,7 @@ export class LeagueService {
           status: r.status,
           ...i,
           daysOverdue: i.due
-            ? Math.floor(
-                (Date.parse(today) - Date.parse(i.due)) / 86400000,
-              )
+            ? Math.floor((Date.parse(today) - Date.parse(i.due)) / 86400000)
             : null,
         }));
       })
@@ -1214,12 +1242,76 @@ export class LeagueService {
         saved.email,
         `${saved.firstName} ${saved.lastName}`,
         saved.ageGroup,
+        saved.preferredWhen,
       );
     } catch (error) {
       this.logger.error(`Trial confirmation email failed: ${error.message}`);
     }
 
+    // Until now nobody at the academy was told a trial had been booked — the
+    // request sat in a table with no screen. The same alert as a new
+    // registration goes to the notification addresses in Settings.
+    try {
+      const player = `${saved.firstName} ${saved.lastName}`.trim();
+      const kind = /i-?model/i.test(saved.preferredWhen ?? '')
+        ? 'I-Model trial'
+        : 'Free session';
+      await this.mailService.sendAdminAlert(
+        `${kind} request: ${player} (${saved.ageGroup})`,
+        `New ${kind.toLowerCase()} request`,
+        `<strong>${player}</strong> asked for a ${kind.toLowerCase()} on the website. Pick a date in Dashboard &rarr; Trials and press Send invitation.`,
+        {
+          Player: player,
+          'Age group': saved.ageGroup,
+          'Date of birth': saved.dateOfBirth,
+          Preferred: saved.preferredWhen,
+          'Current / last club': saved.previousClub,
+          Position: saved.position,
+          Parent: saved.parentName,
+          Email: saved.email,
+          Phone: saved.phone,
+          City: saved.city,
+          'Heard about us': saved.howHeard,
+        },
+      );
+    } catch (error) {
+      this.logger.error(`Trial admin alert failed: ${error.message}`);
+    }
+
     return saved;
+  }
+
+  /**
+   * Invitation type 2: tell the family exactly when and where to come. Saves
+   * the date on the booking so the dashboard shows who has been invited.
+   */
+  async inviteTrial(id: number, dto: SendTrialInvitationDto) {
+    const trial = await this.trialRepo.findOne({ where: { id } });
+    if (!trial) throw new NotFoundException('Trial booking not found');
+    const when = new Date(dto.scheduledFor);
+    if (isNaN(when.getTime())) {
+      throw new BadRequestException('Invalid session date');
+    }
+    const ok = await this.mailService.sendTrialInvitation(
+      trial.email,
+      `${trial.firstName} ${trial.lastName}`.trim(),
+      trial.parentName,
+      {
+        kind: dto.kind,
+        whenText: dto.whenText,
+        where: dto.where,
+        address: dto.address,
+        mapsUrl: dto.mapsUrl,
+        note: dto.note ?? null,
+      },
+    );
+    if (!ok) {
+      throw new BadRequestException(
+        'The email could not be sent. Please try again, or call the family.',
+      );
+    }
+    trial.scheduledFor = when;
+    return this.trialRepo.save(trial);
   }
 
   async listTrials(status?: string) {
@@ -1258,9 +1350,9 @@ export class LeagueService {
    */
   private assertAgeGroupOpen(season: LeagueSeason, ageGroup: string): string {
     const key = (v: string) =>
-      (v || '').toUpperCase().replace(/[\s\u2010-\u2015_]/g, (c) =>
-        /\s/.test(c) ? '' : '-',
-      );
+      (v || '')
+        .toUpperCase()
+        .replace(/[\s\u2010-\u2015_]/g, (c) => (/\s/.test(c) ? '' : '-'));
     const groups = this.ageGroupsOf(season);
     // Groups renamed for 2026/27. A page cached before the rename may still
     // send the old name; land it on the new group when the season has it.
@@ -1334,7 +1426,9 @@ export class LeagueService {
       if (n <= 14) return SubscriptionPlan.U13_U14;
       return SubscriptionPlan.U15_U18;
     }
-    return Object.values(SubscriptionPlan).includes(fallback as SubscriptionPlan)
+    return Object.values(SubscriptionPlan).includes(
+      fallback as SubscriptionPlan,
+    )
       ? (fallback as SubscriptionPlan)
       : SubscriptionPlan.free;
   }
@@ -1360,7 +1454,11 @@ export class LeagueService {
   ) {
     if (who.userId) {
       const existing = await this.registrationRepo.findOne({
-        where: { seasonId, userId: who.userId, status: Not('withdrawn' as any) },
+        where: {
+          seasonId,
+          userId: who.userId,
+          status: Not('withdrawn' as any),
+        },
       });
       if (existing) {
         throw new ConflictException(
@@ -1474,7 +1572,9 @@ export class LeagueService {
         ? Number(season.feePayInFull)
         : baseFee;
 
-    const firstAmount = payInFull ? feeTotal : Number((feeTotal / 2).toFixed(2));
+    const firstAmount = payInFull
+      ? feeTotal
+      : Number((feeTotal / 2).toFixed(2));
     const secondAmount = payInFull
       ? 0
       : Number((feeTotal - firstAmount).toFixed(2));
@@ -1519,7 +1619,9 @@ export class LeagueService {
     // belongs to; a real plan already on the record is left alone.
     if (data.userId) {
       try {
-        const user = await this.userRepo.findOne({ where: { id: data.userId } });
+        const user = await this.userRepo.findOne({
+          where: { id: data.userId },
+        });
         const realPlans = [
           SubscriptionPlan.U5_U8,
           SubscriptionPlan.U9_U12,
@@ -1531,7 +1633,9 @@ export class LeagueService {
           await this.userRepo.save(user);
         }
       } catch (error) {
-        this.logger.error(`Could not set plan for user ${data.userId}: ${error.message}`);
+        this.logger.error(
+          `Could not set plan for user ${data.userId}: ${error.message}`,
+        );
       }
     }
 
@@ -1562,15 +1666,19 @@ export class LeagueService {
           Parent: r.parentName,
           Email: r.email,
           Phone: r.phone,
-          'New to the academy': opts.isNewPlayer ? 'Yes' : 'No (existing member)',
+          'New to the academy': opts.isNewPlayer
+            ? 'Yes'
+            : 'No (existing member)',
           Status:
             r.status === 'waitlist'
               ? 'Waiting list - age group full, told NOT to pay yet'
               : 'Awaiting payment',
-          'Amount to expect now': r.status === 'waitlist' ? '-' : money(r.firstAmount),
+          'Amount to expect now':
+            r.status === 'waitlist' ? '-' : money(r.firstAmount),
           'Season total': money(r.feeTotal),
           'E-transfer message they were told to use': `${player} - ${r.ageGroup}`,
-          'Where to record it': 'Dashboard -> League -> choose the season -> Record payment',
+          'Where to record it':
+            'Dashboard -> League -> choose the season -> Record payment',
         },
       );
     } catch (error) {

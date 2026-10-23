@@ -45,9 +45,7 @@ export class MailService {
     const port = parseInt(process.env.SMTP_PORT || '587', 10);
     const secure = process.env.SMTP_SECURE === 'true';
 
-    this.from =
-      process.env.MAIL_FROM ||
-      `${ACADEMY_NAME} <${ACADEMY_EMAIL}>`;
+    this.from = process.env.MAIL_FROM || `${ACADEMY_NAME} <${ACADEMY_EMAIL}>`;
 
     this.adminEmails = (process.env.ADMIN_EMAILS || '')
       .split(',')
@@ -117,7 +115,9 @@ export class MailService {
     try {
       const to = await this.adminRecipients();
       if (to.length === 0) {
-        this.logger.warn(`Admin alert skipped (no notification emails): ${subject}`);
+        this.logger.warn(
+          `Admin alert skipped (no notification emails): ${subject}`,
+        );
         return false;
       }
       const esc = (v: unknown) =>
@@ -258,7 +258,10 @@ export class MailService {
    *                          tells the parent to send the wrong money.
    */
   private etransferInstructions(
-    mode: 'joining' | 'renewal' | { amount: number; forWhat: string } = 'renewal',
+    mode:
+      | 'joining'
+      | 'renewal'
+      | { amount: number; forWhat: string } = 'renewal',
   ): string {
     const exact = typeof mode === 'object' ? mode : null;
     const amount = exact
@@ -527,10 +530,7 @@ export class MailService {
   }
 
   /** Good news email: the suspension has been lifted. */
-  async sendSuspensionLifted(
-    to: string,
-    playerName: string,
-  ): Promise<boolean> {
+  async sendSuspensionLifted(to: string, playerName: string): Promise<boolean> {
     try {
       const body = `
         ${this.heading('Welcome back!')}
@@ -647,7 +647,9 @@ export class MailService {
     try {
       const adminTo = await this.adminRecipients();
       if (adminTo.length === 0) {
-        this.logger.warn('sendAdminRequestNotice skipped: no notification emails');
+        this.logger.warn(
+          'sendAdminRequestNotice skipped: no notification emails',
+        );
         return false;
       }
 
@@ -884,35 +886,152 @@ export class MailService {
         this.layout('Registration received', body),
       );
     } catch (error) {
-      this.logger.error(`sendLeagueRegistrationReceived failed: ${error.message}`);
+      this.logger.error(
+        `sendLeagueRegistrationReceived failed: ${error.message}`,
+      );
       return false;
     }
   }
 
   /** Sent when a family books a trial from the website. */
+  /**
+   * Sent the moment a family books a trial or a free session on /trials.
+   * `preferredWhen` carries the kind and the session they picked, e.g.
+   * "I-Model trial · Monday 5–6 pm".
+   */
   async sendTrialRequestReceived(
     to: string,
     playerName: string,
     ageGroup: string,
+    preferredWhen?: string | null,
   ): Promise<boolean> {
     try {
+      const isImodel = /i-?model/i.test(preferredWhen ?? '');
+      const what = isImodel ? 'I-Model Team trial' : 'free session';
+      const picked = (preferredWhen ?? '').split('·')[1]?.trim();
       const body = `
-        ${this.heading('Trial request received')}
-        <p>Dear parent/guardian of <strong>${playerName}</strong>,</p>
-        <p>Thank you for your interest in ${ACADEMY_NAME}. We have received the trial request for <strong>${playerName}</strong> (<strong>${ageGroup}</strong>).</p>
-        <p>One of our coaches will contact you to confirm a date and time. Places at each session are limited so every player gets proper attention.</p>
-        <p><strong>What to bring:</strong> cleats, shin guards and water.</p>
+        ${this.heading(isImodel ? 'Trial request received' : 'Free session request received')}
+        <p>Dear parent/guardian of <strong>${this.esc(playerName)}</strong>,</p>
+        <p>Thank you for your interest in ${ACADEMY_NAME}. We have received your request for a <strong>${what}</strong> for <strong>${this.esc(playerName)}</strong> (<strong>${this.esc(ageGroup)}</strong>)${picked && picked !== 'any session' ? `, preferably <strong>${this.esc(picked)}</strong>` : ''}.</p>
+        <p>We will email you shortly with the exact date and time. Sessions are at <strong>Richmond Hill Green Dome</strong>, 1300 Elgin Mills Rd E, Richmond Hill. There is nothing to pay.</p>
+        <p><strong>What to bring:</strong> soccer cleats, shin guards and water.</p>
         <p>If anything changes, reply to this email or call us on <a href="tel:+16477037821" style="color:${BRAND_RED};text-decoration:none;">${ACADEMY_PHONE}</a>.</p>`;
 
       return await this.send(
         to,
-        `Trial request received - ${playerName} (${ageGroup})`,
-        this.layout('Trial request received', body),
+        `${isImodel ? 'Trial request' : 'Free session request'} received - ${playerName} (${ageGroup})`,
+        this.layout('Request received', body),
       );
     } catch (error) {
       this.logger.error(`sendTrialRequestReceived failed: ${error.message}`);
       return false;
     }
+  }
+
+  /**
+   * Invitation type 2: a family who asked to try out is told exactly when and
+   * where to come. The date text is formatted in the dashboard (the owner's
+   * own time zone) and passed in as written.
+   */
+  async sendTrialInvitation(
+    to: string,
+    playerName: string,
+    parentName: string | null,
+    details: {
+      kind: 'imodel' | 'free';
+      whenText: string;
+      where: string;
+      address: string;
+      mapsUrl: string;
+      note?: string | null;
+    },
+  ): Promise<boolean> {
+    try {
+      const what =
+        details.kind === 'imodel'
+          ? 'I-Model Team trial'
+          : 'free training session';
+      const body = `
+        ${this.heading(details.kind === 'imodel' ? 'Your I-Model Team trial' : 'Your free session')}
+        <p>${parentName ? `Hi ${this.esc(parentName)},` : 'Hi,'}</p>
+        <p>We are looking forward to meeting <strong>${this.esc(playerName)}</strong>. Here are the details for the ${what}:</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:15px;margin:16px 0;">
+          <tr><td style="padding:10px 12px;border:1px solid #e5e5ea;font-weight:bold;color:${BRAND_NAVY};width:90px;">When</td><td style="padding:10px 12px;border:1px solid #e5e5ea;"><strong>${this.esc(details.whenText)}</strong></td></tr>
+          <tr><td style="padding:10px 12px;border:1px solid #e5e5ea;font-weight:bold;color:${BRAND_NAVY};">Where</td><td style="padding:10px 12px;border:1px solid #e5e5ea;">${this.esc(details.where)}<br/><span style="color:#666;">${this.esc(details.address)}</span><br/><a href="${details.mapsUrl}" style="color:${BRAND_RED};">Open in Maps</a></td></tr>
+          <tr><td style="padding:10px 12px;border:1px solid #e5e5ea;font-weight:bold;color:${BRAND_NAVY};">Bring</td><td style="padding:10px 12px;border:1px solid #e5e5ea;">Soccer cleats, shin guards and water</td></tr>
+          <tr><td style="padding:10px 12px;border:1px solid #e5e5ea;font-weight:bold;color:${BRAND_NAVY};">Cost</td><td style="padding:10px 12px;border:1px solid #e5e5ea;">Free</td></tr>
+        </table>
+        ${details.note ? `<p>${this.esc(details.note)}</p>` : ''}
+        <p>Please arrive about 10 minutes early so the coach can meet you. ${details.kind === 'imodel' ? 'Our coaches will watch the session and let you know afterwards whether there is a place on the squad.' : 'After the session the coach will tell you how it went and which group suits your child.'}</p>
+        <p>Can't make it? Reply to this email or call <a href="tel:+16477037821" style="color:${BRAND_RED};text-decoration:none;">${ACADEMY_PHONE}</a> and we will find another day.</p>`;
+      return await this.send(
+        to,
+        `${details.kind === 'imodel' ? 'I-Model trial' : 'Free session'}: ${playerName} - ${details.whenText}`,
+        this.layout('Your session details', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendTrialInvitation failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Invitation type 1: a family who left — for whatever reason, including not
+   * being happy with a coach — is invited back for a free session. It does
+   * not guess why they left and blames nobody; it asks, and offers a session.
+   * Promotional, so it carries an unsubscribe line (CASL) and the mailing
+   * address when ACADEMY_MAILING_ADDRESS is set.
+   */
+  async sendComeBackInvitation(
+    to: string,
+    playerName: string,
+    parentName: string | null,
+    details: { bookUrl: string; where: string; note?: string | null },
+  ): Promise<boolean> {
+    try {
+      const first = this.esc(playerName.split(' ')[0] || playerName);
+      const body = `
+        ${this.heading(`We would love to see ${first} back`)}
+        <p>${parentName ? `Hi ${this.esc(parentName)},` : 'Hi,'}</p>
+        <p>It has been a while since <strong>${this.esc(playerName)}</strong> trained with us, and we have missed having them around.</p>
+        <p>Families step away for all kinds of reasons — the schedule, the location, the coaching, or simply life getting busy. Whatever it was for you, we would honestly like to know, because it helps us do better. Just reply to this email; it comes straight to us and stays between us.</p>
+        <p>We would also like to invite ${first} to <strong>one free training session</strong> at <strong>${this.esc(details.where)}</strong> this season — no cost and no commitment — to see how things are now.</p>
+        ${details.note ? `<p>${this.esc(details.note)}</p>` : ''}
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${details.bookUrl}" style="display:inline-block;background-color:${BRAND_RED};color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 32px;border-radius:6px;font-size:16px;">Book a free session</a>
+        </div>
+        <hr style="border:none;border-top:1px solid #e5e5ea;margin:28px 0;" />
+        <div dir="rtl" style="text-align:right;">
+          <p>سلام${parentName ? ` ${this.esc(parentName)}` : ''}،</p>
+          <p>مدتی است که <strong>${this.esc(playerName)}</strong> با ما تمرین نکرده و جایش در تیم خالی است.</p>
+          <p>خانواده‌ها به دلایل مختلفی مدتی کنار می‌روند — زمان یا محل تمرین، مربی، یا مشغله‌ی زندگی. هر دلیلی که بوده، خیلی دوست داریم بدانیم تا بهتر شویم. کافی است به همین ایمیل جواب بدهید؛ مستقیم به دست خود ما می‌رسد.</p>
+          <p>همچنین ${first} را به <strong>یک جلسه‌ی تمرین رایگان</strong> در ${this.esc(details.where)} دعوت می‌کنیم — بدون هزینه و بدون تعهد.</p>
+          <p><a href="${details.bookUrl}" style="color:${BRAND_RED};font-weight:bold;">رزرو جلسه‌ی رایگان</a></p>
+        </div>
+        ${this.marketingFooter()}`;
+      return await this.send(
+        to,
+        `A free session for ${playerName} - we would love to see you back`,
+        this.layout('A free session for you', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendComeBackInvitation failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /** Unsubscribe line and mailing address for promotional email (CASL). */
+  private marketingFooter(): string {
+    const address = (process.env.ACADEMY_MAILING_ADDRESS || '').trim();
+    return `<p style="font-size:12px;color:#888;margin-top:24px;">You are receiving this because ${this.esc(ACADEMY_NAME)} has your family on file as a former member. If you would rather not receive invitations like this, reply with &ldquo;unsubscribe&rdquo; and we will not send them again.${address ? `<br/>${this.esc(ACADEMY_NAME)}, ${this.esc(address)}` : ''}</p>`;
+  }
+
+  private esc(value: unknown): string {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   /** Reminder that a league installment is due or overdue. */
@@ -952,7 +1071,9 @@ export class MailService {
         this.layout('League payment', body),
       );
     } catch (error) {
-      this.logger.error(`sendLeagueInstallmentReminder failed: ${error.message}`);
+      this.logger.error(
+        `sendLeagueInstallmentReminder failed: ${error.message}`,
+      );
       return false;
     }
   }

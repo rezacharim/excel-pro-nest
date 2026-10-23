@@ -39,6 +39,7 @@ import {
   RegisterForLeagueDto,
   UpdateRegistrationDto,
   UpdateTrialDto,
+  SendTrialInvitationDto,
 } from './dto/league.dto';
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,8 @@ export class LeaguePortalController {
 
   @Patch('player/:userId')
   @ApiOperation({
-    summary: "Correct one of my players' details (name, date of birth, address)",
+    summary:
+      "Correct one of my players' details (name, date of birth, address)",
   })
   @ApiParam({ name: 'userId', type: Number })
   @ApiBody({ type: UpdatePlayerDetailsDto })
@@ -353,5 +355,16 @@ export class LeagueAdminController {
     @Body() dto: UpdateTrialDto,
   ) {
     return this.leagueService.updateTrial(id, dto);
+  }
+
+  @Post('trials/:id/invite')
+  @ApiOperation({ summary: 'Email the family the date and place of the trial' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiBody({ type: SendTrialInvitationDto })
+  inviteTrial(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SendTrialInvitationDto,
+  ) {
+    return this.leagueService.inviteTrial(id, dto);
   }
 }

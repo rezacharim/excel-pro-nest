@@ -182,7 +182,10 @@ export class RegisterForLeagueDto {
 
 /** Register an existing player from the parent dashboard (details prefilled). */
 export class PortalRegisterDto {
-  @ApiProperty({ example: 12, description: 'One of the logged-in parent\'s players' })
+  @ApiProperty({
+    example: 12,
+    description: "One of the logged-in parent's players",
+  })
   @IsInt()
   userId: number;
 
@@ -258,7 +261,10 @@ export class UpdatePlayerDetailsDto {
   @ApiPropertyOptional() @IsOptional() @IsString() postalCode?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() parentName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() medicalNotes?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() emergencyContactName?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  emergencyContactName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() emergencyPhone?: string;
 }
 
@@ -315,7 +321,10 @@ export class UpdateRegistrationDto {
   // extended, a family agreeing a different split, a correction after the
   // fact. Without these the only fix was to delete and re-register, and there
   // is no delete.
-  @ApiPropertyOptional({ example: 900, description: 'Total fee for this player' })
+  @ApiPropertyOptional({
+    example: 900,
+    description: 'Total fee for this player',
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -548,7 +557,8 @@ export class CreateSeasonDto {
 
   @ApiPropertyOptional({
     example: 75,
-    description: 'One-time uniform, paid online and collected at first practice',
+    description:
+      'One-time uniform, paid online and collected at first practice',
   })
   @IsOptional()
   @IsNumber()
@@ -704,4 +714,44 @@ export class UpdateTrialDto {
   @IsOptional()
   @IsDateString()
   scheduledFor?: string;
+}
+
+/**
+ * Invitation type 2 — the date, time and place a trialist should come.
+ * `whenText` is written by the dashboard in the owner's own time zone so the
+ * email says exactly what he saw ("Monday, October 26 at 5:00 pm").
+ */
+export class SendTrialInvitationDto {
+  @ApiProperty({ enum: ['imodel', 'free'] })
+  @IsIn(['imodel', 'free'])
+  kind: 'imodel' | 'free';
+
+  @ApiProperty({ example: '2026-10-26T21:00:00.000Z' })
+  @IsDateString()
+  scheduledFor: string;
+
+  @ApiProperty({ example: 'Monday, October 26 at 5:00 pm' })
+  @IsString()
+  @IsNotEmpty()
+  whenText: string;
+
+  @ApiProperty({ example: 'Richmond Hill Green Dome' })
+  @IsString()
+  @IsNotEmpty()
+  where: string;
+
+  @ApiProperty({ example: '1300 Elgin Mills Rd E, Richmond Hill, ON L4S 1M5' })
+  @IsString()
+  @IsNotEmpty()
+  address: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  mapsUrl: string;
+
+  @ApiPropertyOptional({ description: 'Extra line from the coach' })
+  @IsOptional()
+  @IsString()
+  note?: string;
 }

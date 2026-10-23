@@ -33,6 +33,7 @@ import {
   BulkActionDto,
   QuickAddPlayerDto,
   InviteParentsDto,
+  InviteBackDto,
 } from './dto/membership.dto';
 
 export interface MembershipOverviewRow {
@@ -234,7 +235,9 @@ export class MembershipService {
       }
     } catch (error) {
       // The overview must still load if the league tables are unreachable.
-      this.logger.error(`Could not load season registrations: ${error.message}`);
+      this.logger.error(
+        `Could not load season registrations: ${error.message}`,
+      );
     }
     return map;
   }
@@ -462,6 +465,98 @@ export class MembershipService {
   }
 
   /**
+   * Invitation type 1: families who left are invited back for a free session.
+   *
+   * - One email per family: siblings sharing an address get one message
+   *   naming both children, not two.
+   * - Skips anyone whose internal note says "unsubscribe" — that is how a
+   *   reply asking to stop is honoured (CASL).
+   * - Skips families invited back in the last 30 days unless `resend`.
+   * - Each invite is written into the player's internal note, so the history
+   *   is visible on the Memberships screen.
+   */
+  async inviteBack(dto: InviteBackDto): Promise<{
+    sent: number;
+    skipped: { fullname: string; reason: string }[];
+    failed: { fullname: string; reason: string }[];
+  }> {
+    const skipped: { fullname: string; reason: string }[] = [];
+    const failed: { fullname: string; reason: string }[] = [];
+    let sent = 0;
+    const MARK = 'Free-session invite emailed';
+    const recent = Date.now() - 30 * 86_400_000;
+
+    const families = new Map<string, User[]>();
+    for (const userId of dto.userIds) {
+      let user: User;
+      try {
+        user = await this.getUserOrFail(userId);
+      } catch {
+        failed.push({ fullname: `#${userId}`, reason: 'Player not found' });
+        continue;
+      }
+      const email = (user.email || '').trim().toLowerCase();
+      if (!email) {
+        skipped.push({ fullname: user.fullname, reason: 'No email address' });
+        continue;
+      }
+      if (/unsubscrib/i.test(user.internalNote ?? '')) {
+        skipped.push({
+          fullname: user.fullname,
+          reason: 'Asked not to be emailed',
+        });
+        continue;
+      }
+      const last = [
+        ...(user.internalNote ?? '').matchAll(
+          new RegExp(`${MARK} (\\d{4}-\\d{2}-\\d{2})`, 'g'),
+        ),
+      ].pop()?.[1];
+      if (last && !dto.resend && new Date(last).getTime() > recent) {
+        skipped.push({
+          fullname: user.fullname,
+          reason: `Already invited ${last}`,
+        });
+        continue;
+      }
+      families.set(email, [...(families.get(email) ?? []), user]);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [email, kids] of families) {
+      const names = kids.map((k) => k.fullname).filter(Boolean);
+      const playerName =
+        names.length <= 1
+          ? names[0] || 'your child'
+          : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+      const ok = await this.mailService.sendComeBackInvitation(
+        email,
+        playerName,
+        kids[0].parent_name || null,
+        { bookUrl: dto.bookUrl, where: dto.where, note: dto.note ?? null },
+      );
+      if (!ok) {
+        for (const k of kids) {
+          failed.push({
+            fullname: k.fullname,
+            reason: 'Email could not be sent',
+          });
+        }
+        continue;
+      }
+      for (const k of kids) {
+        const line = `${MARK} ${today}`;
+        k.internalNote = k.internalNote ? `${k.internalNote}\n${line}` : line;
+        await this.userRepository.save(k);
+      }
+      sent += 1;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+
+    return { sent, skipped, failed };
+  }
+
+  /**
    * Apply one action to many players — used mainly to clear out families who
    * left the academy long ago and were never marked as such.
    */
@@ -666,10 +761,7 @@ export class MembershipService {
    * without picking a program first were stored with a placeholder plan; this
    * lets an admin fix that from the Memberships screen.
    */
-  async setPlan(
-    userId: number,
-    plan: string,
-  ): Promise<MembershipOverviewRow> {
+  async setPlan(userId: number, plan: string): Promise<MembershipOverviewRow> {
     const user = await this.getUserOrFail(userId);
     user.activePlan = plan as SubscriptionPlan;
     const saved = await this.userRepository.save(user);
@@ -745,7 +837,9 @@ export class MembershipService {
       if (isNaN(newEnd.getTime())) {
         throw new BadRequestException('Invalid paid-until date');
       }
-      base = dto.periodStart ? parseCalendarDay(dto.periodStart) : new Date(now);
+      base = dto.periodStart
+        ? parseCalendarDay(dto.periodStart)
+        : new Date(now);
       if (isNaN(base.getTime())) {
         throw new BadRequestException('Invalid period start date');
       }
@@ -1010,8 +1104,7 @@ export class MembershipService {
 
     const escapeCsv = (value: unknown): string => {
       if (value === null || value === undefined) return '';
-      const str =
-        value instanceof Date ? value.toISOString() : String(value);
+      const str = value instanceof Date ? value.toISOString() : String(value);
       if (/[",\r\n]/.test(str)) {
         return `"${str.replace(/"/g, '""')}"`;
       }
