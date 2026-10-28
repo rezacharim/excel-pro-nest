@@ -188,7 +188,12 @@ export class MailService {
 
   private formatDate(date: Date | string | null | undefined): string {
     if (!date) return 'N/A';
-    const d = typeof date === 'string' ? new Date(date) : date;
+    // A bare date ("2027-01-31") is read as midnight UTC, which a server in
+    // Toronto prints as the day before. Read it as midday instead.
+    const d =
+      typeof date === 'string'
+        ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T12:00:00` : date)
+        : date;
     if (isNaN(d.getTime())) return 'N/A';
     return d.toLocaleDateString('en-CA', {
       year: 'numeric',
@@ -831,6 +836,8 @@ export class MailService {
       secondDueDate: string | null;
       isLate: boolean;
       payInFull: boolean;
+      /** Replaces the late-fee line, e.g. the I-Model early bird terms. */
+      priceNote?: string | null;
     },
   ): Promise<boolean> {
     try {
@@ -845,7 +852,9 @@ export class MailService {
         ? `<p style="background-color:#fff8e6;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;"><strong>${details.ageGroup} is currently full.</strong> ${playerName} is on the waiting list. Please do not send payment yet &mdash; we will contact you as soon as a spot opens.</p>`
         : '';
 
-      const lateNote = details.isLate
+      const lateNote = details.priceNote
+        ? `<p style="background-color:#fdf1f0;border-left:4px solid ${BRAND_RED};padding:12px 16px;border-radius:4px;font-size:14px;color:#333333;">${this.esc(details.priceNote)}</p>`
+        : details.isLate
         ? `<p style="color:#555555;font-size:14px;">This registration was received after the deadline, so the late registration fee applies.</p>`
         : '';
 
@@ -972,6 +981,70 @@ export class MailService {
       );
     } catch (error) {
       this.logger.error(`sendTrialInvitation failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * I-Model Team offer, sent after the trial from Dashboard → Trials. Carries
+   * the family's personal registration link — the team is by invitation, so
+   * this is the only way in. A reply to the family's own trial request with
+   * the price of the spot they asked about, so it is not promotional email.
+   */
+  async sendImodelOffer(
+    to: string,
+    playerName: string,
+    parentName: string | null,
+    details: {
+      url: string;
+      seasonName: string;
+      regular: number;
+      earlyBird: number | null;
+      earlyBirdBy: string | null;
+      note?: string | null;
+    },
+  ): Promise<boolean> {
+    try {
+      const first = this.esc(playerName.split(' ')[0] || playerName);
+      const money = (n: number) => `$${Number(n).toLocaleString('en-CA')}`;
+      const by = details.earlyBirdBy
+        ? this.formatDate(`${details.earlyBirdBy}T12:00:00`)
+        : '';
+      const priceBlock =
+        details.earlyBird !== null && by
+          ? `<div style="font-size:13px;letter-spacing:2px;color:${BRAND_RED};font-weight:bold;">EARLY BIRD</div>
+             <div style="font-size:28px;font-weight:bold;margin-top:4px;">${money(details.earlyBird)}</div>
+             <div style="font-size:15px;color:#d0d0e0;margin-top:4px;">paid in full by ${by} &mdash; save ${money(details.regular - details.earlyBird)}</div>
+             <div style="font-size:13px;color:#a0a0b8;margin-top:8px;">Regular fee ${money(details.regular)}</div>`
+          : `<div style="font-size:13px;letter-spacing:2px;color:${BRAND_RED};font-weight:bold;">SEASON FEE</div>
+             <div style="font-size:28px;font-weight:bold;margin-top:4px;">${money(details.regular)}</div>
+             <div style="font-size:15px;color:#d0d0e0;margin-top:4px;">paid in full before the season starts</div>`;
+      const body = `
+        ${this.heading(`${first} has been offered a spot on the I-Model Team`)}
+        <p>${parentName ? `Hi ${this.esc(parentName)},` : 'Hi,'}</p>
+        <p>Congratulations! After the trial, our coaches would like <strong>${this.esc(playerName)}</strong> to join the <strong>Excel Pro I-Model Team</strong> for the <strong>${this.esc(details.seasonName)}</strong>. The squad prepares all winter at Richmond Hill Green Dome for the Summer I-Model League.</p>
+        ${details.note ? `<p>${this.esc(details.note)}</p>` : ''}
+        <div style="background:${BRAND_NAVY};color:#ffffff;border-radius:8px;padding:20px 24px;margin:20px 0;text-align:center;">
+          ${priceBlock}
+        </div>
+        <p>To accept the spot, register with the personal link below. It takes about three minutes; the payment details are on the last screen and in the confirmation email. The spot is confirmed once payment is received.</p>
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${details.url}" style="display:inline-block;background-color:${BRAND_RED};color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 32px;border-radius:6px;font-size:16px;">Accept the spot &amp; register</a>
+        </div>
+        <p style="font-size:13px;color:#666;">This link is for ${first} only. The I-Model fee is separate from indoor training. Questions? Reply to this email or call <a href="tel:+16477037821" style="color:${BRAND_RED};text-decoration:none;">${ACADEMY_PHONE}</a>.</p>
+        <hr style="border:none;border-top:1px solid #e5e5ea;margin:28px 0;" />
+        <div dir="rtl" style="text-align:right;">
+          <p>${parentName ? `سلام ${this.esc(parentName)}،` : 'سلام،'}</p>
+          <p>تبریک! مربیان ما بعد از تست، <strong>${this.esc(playerName)}</strong> را برای تیم I-Model (فصل تابستان) انتخاب کرده‌اند.${details.earlyBird !== null && by ? ` هزینه‌ی Early Bird <strong>${money(details.earlyBird)}</strong> است اگر تا ${by} کامل پرداخت شود؛ بعد از آن ${money(details.regular)}.` : ` هزینه‌ی فصل ${money(details.regular)} است.`}</p>
+          <p><a href="${details.url}" style="color:${BRAND_RED};font-weight:bold;">قبول و ثبت‌نام</a></p>
+        </div>`;
+      return await this.send(
+        to,
+        `${playerName} - offered a spot on the Excel Pro I-Model Team`,
+        this.layout('I-Model Team offer', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendImodelOffer failed: ${error.message}`);
       return false;
     }
   }

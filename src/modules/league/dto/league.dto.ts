@@ -196,6 +196,14 @@ export class RegisterForLeagueDto {
   @IsOptional()
   @IsBoolean()
   consentMarketing?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'I-Model Team only: the personal link from the offer email. The team is by invitation after a trial.',
+  })
+  @IsOptional()
+  @IsString()
+  offerToken?: string;
 }
 
 /** Register an existing player from the parent dashboard (details prefilled). */
@@ -553,9 +561,9 @@ export class CreateSeasonDto {
   @IsString()
   slug?: string;
 
-  @ApiPropertyOptional({ enum: ['league', 'indoor'], default: 'league' })
+  @ApiPropertyOptional({ enum: ['league', 'indoor', 'imodel'], default: 'league' })
   @IsOptional()
-  @IsIn(['league', 'indoor'])
+  @IsIn(['league', 'indoor', 'imodel'])
   kind?: string;
 
   @ApiPropertyOptional({ example: 'Indoor Season 2026/27' })
@@ -813,6 +821,14 @@ export class SendTrialInvitationDto {
   @IsNotEmpty()
   mapsUrl: string;
 
+  @ApiPropertyOptional({ description: 'Extra line from the coach' })
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+/** Dashboard → Trials → Offer a spot (I-Model Team). */
+export class SendImodelOfferDto {
   @ApiPropertyOptional({ description: 'Extra line from the coach' })
   @IsOptional()
   @IsString()

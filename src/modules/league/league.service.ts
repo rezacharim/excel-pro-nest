@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
@@ -34,7 +35,12 @@ import {
   UpdateRegistrationDto,
   UpdateTrialDto,
   SendTrialInvitationDto,
+  SendImodelOfferDto,
 } from './dto/league.dto';
+import {
+  offerUrl,
+  trialIdFromOfferToken,
+} from '../../common/email/offer-token';
 
 /** Statuses that occupy a roster spot. */
 const OCCUPYING: LeagueRegistrationStatus[] = [
@@ -43,8 +49,44 @@ const OCCUPYING: LeagueRegistrationStatus[] = [
   'submitted',
 ];
 
+/**
+ * The I-Model Team's summer season. Created automatically (once) when the
+ * server starts, so it appears in Dashboard → League without anyone having
+ * to set it up; every value can be changed afterwards in Season settings.
+ *
+ * Prices confirmed by Reza (2026-10-28): $1,200, or $1,050 early bird when
+ * paid in full before February 2027. Registration is by invitation after a
+ * trial. Never active: the "active" season is the one the rest of the site
+ * treats as the league, and the I-Model page always asks for it by slug.
+ */
+const IMODEL_SLUG = 'imodel';
+const IMODEL_SEASON: Partial<LeagueSeason> = {
+  name: 'I-Model Team Summer 2027',
+  slug: IMODEL_SLUG,
+  kind: 'imodel',
+  tagline: 'I-Model Team · Summer 2027',
+  paymentCoversNote: 'I-Model Team, Summer 2027 season',
+  ageGroups: 'U13,U14,U15,U16',
+  startsOn: null,
+  firstPaymentDue: '2027-01-31',
+  secondPaymentDue: null,
+  // Early bird is the on-time fee; the regular fee is the "late" one, from
+  // February 1. isLate() compares with ">", so January 31 is still early.
+  feeTotal: 1050,
+  feeLate: 1200,
+  lateFeeFrom: '2027-01-31',
+  feePayInFull: null,
+  installmentCount: 1,
+  capacityPerGroup: 18,
+  spotsDisplay: 'hidden',
+  paymentInstructions:
+    "Send your Interac e-Transfer to Excelpro.Etransfer@gmail.com with the player's full name and age group in the message.",
+  registrationOpen: true,
+  isActive: false,
+};
+
 @Injectable()
-export class LeagueService {
+export class LeagueService implements OnModuleInit {
   private readonly logger = new Logger(LeagueService.name);
 
   constructor(
@@ -60,6 +102,21 @@ export class LeagueService {
     private readonly paymentRepo: Repository<Payment>,
     private readonly mailService: MailService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      const existing = await this.seasonRepo.findOne({
+        where: { slug: IMODEL_SLUG },
+      });
+      if (!existing) {
+        await this.seasonRepo.save(this.seasonRepo.create(IMODEL_SEASON));
+        this.logger.log('Created the I-Model Team season');
+      }
+    } catch (error) {
+      // Two cold starts at once: the unique slug stops a second copy.
+      this.logger.warn(`I-Model season check skipped: ${error.message}`);
+    }
+  }
 
   // ------------------------------------------------------------------
   // Seasons
@@ -333,6 +390,12 @@ export class LeagueService {
     if (!dto.consentTerms) {
       throw new BadRequestException('You must accept the terms to register.');
     }
+    // The I-Model Team is selective: only a family offered a spot after a
+    // trial can register, through the personal link in the offer email.
+    const offeredTrial =
+      season.kind === 'imodel'
+        ? await this.assertImodelOffer(dto.offerToken)
+        : null;
     dto.ageGroup = this.assertAgeGroupOpen(season, dto.ageGroup);
 
     const email = dto.email.trim().toLowerCase();
@@ -396,9 +459,19 @@ export class LeagueService {
       ...this.agreementFields(dto, ip),
     });
 
+    if (offeredTrial) {
+      try {
+        offeredTrial.status = 'joined';
+        offeredTrial.convertedUserId = user?.id ?? null;
+        await this.trialRepo.save(offeredTrial);
+      } catch (error) {
+        this.logger.error(`Could not mark trial as joined: ${error.message}`);
+      }
+    }
+
     await this.sendRegistrationEmail(season, registration);
     await this.notifyAcademy(season, registration, {
-      via: 'website form',
+      via: offeredTrial ? 'I-Model offer link' : 'website form',
       isNewPlayer,
       referredBy: referrer
         ? `${referrer.parent_name || 'Family of'} ${referrer.parent_name ? `(${referrer.fullname})` : referrer.fullname}`.trim()
@@ -1457,6 +1530,76 @@ export class LeagueService {
   }
 
   /**
+   * I-Model Team: offer a spot after the trial. Emails the family a personal
+   * link to register and pay, and returns the link too so it can also be
+   * sent on WhatsApp.
+   */
+  async sendImodelOffer(id: number, dto: SendImodelOfferDto) {
+    const trial = await this.trialRepo.findOne({ where: { id } });
+    if (!trial) throw new NotFoundException('Trial booking not found');
+    const season = await this.getSeasonBySlug(IMODEL_SLUG);
+    if (!season.registrationOpen) {
+      throw new BadRequestException(
+        'I-Model registration is closed. Open it in Dashboard → League → I-Model Team → Season settings first.',
+      );
+    }
+    const url = offerUrl(trial.id);
+    const late = this.isLate(season);
+    const ok = await this.mailService.sendImodelOffer(
+      trial.email,
+      `${trial.firstName} ${trial.lastName}`.trim(),
+      trial.parentName,
+      {
+        url,
+        seasonName: season.name,
+        regular: Number(season.feeLate),
+        earlyBird: late ? null : Number(season.feeTotal),
+        earlyBirdBy: late ? null : season.lateFeeFrom,
+        note: dto.note?.trim() || null,
+      },
+    );
+    if (!ok) {
+      throw new BadRequestException(
+        'The email could not be sent. Please try again, or send the family the link yourself.',
+      );
+    }
+    trial.status = 'offered';
+    trial.offerSentAt = new Date();
+    const saved = await this.trialRepo.save(trial);
+    return { ...saved, offerUrl: url };
+  }
+
+  /** Public: who an offer link is for, so the form opens already filled in. */
+  async getImodelOffer(token: string) {
+    const trial = await this.assertImodelOffer(token);
+    return {
+      firstName: trial.firstName,
+      lastName: trial.lastName,
+      dateOfBirth: trial.dateOfBirth,
+      gender: trial.gender,
+      ageGroup: trial.ageGroup,
+      parentName: trial.parentName,
+      email: trial.email,
+      phone: trial.phone,
+      city: trial.city,
+      alreadyRegistered: trial.status === 'joined',
+    };
+  }
+
+  private async assertImodelOffer(token?: string | null) {
+    const id = trialIdFromOfferToken(token);
+    const trial = id
+      ? await this.trialRepo.findOne({ where: { id } })
+      : null;
+    if (!trial || !trial.offerSentAt || trial.status === 'declined') {
+      throw new BadRequestException(
+        'The I-Model Team is by invitation after a trial. Please use the personal link from your offer email, or book a trial at excelproso.com/trials. Questions? Call 647-703-7821.',
+      );
+    }
+    return trial;
+  }
+
+  /**
    * "Bring a friend": a booking made through a family's shared link records
    * who sent it, e.g. "Friend of Neda Rahimi (Kian Rahimi)". An id that does
    * not match a player is ignored and the family's own answer is kept.
@@ -1867,11 +2010,29 @@ export class LeagueService {
           secondDueDate: registration.secondDueDate,
           isLate: registration.isLate,
           payInFull: registration.payInFull,
+          priceNote:
+            season.kind === 'imodel' ? this.imodelPriceNote(season, registration) : null,
         },
       );
     } catch (error) {
       this.logger.error(`League registration email failed: ${error.message}`);
     }
+  }
+
+  /** The early bird line in an I-Model registration email. */
+  private imodelPriceNote(season: LeagueSeason, r: LeagueRegistration) {
+    const money = (n: number) => `$${Number(n).toLocaleString('en-CA')}`;
+    const by = season.lateFeeFrom
+      ? new Date(`${season.lateFeeFrom}T12:00:00`).toLocaleDateString('en-CA', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : null;
+    if (r.isLate || !by) {
+      return `The fee for the ${season.name} is ${money(Number(season.feeLate))}, paid in full before the season starts.`;
+    }
+    return `Early bird price: ${money(Number(r.feeTotal))} when paid in full by ${by}. After that date the fee is ${money(Number(season.feeLate))}.`;
   }
 
   private toRegistrationView(

@@ -103,6 +103,15 @@ export class TrialBooking {
   @Column({ type: 'boolean', nullable: true })
   consentMarketing: boolean | null;
 
+  /**
+   * When the family was emailed an I-Model Team offer with their personal
+   * registration link (added 2026-10-28, nullable). The link works only
+   * once this is set.
+   */
+  @ApiProperty({ required: false })
+  @Column({ type: 'timestamp', nullable: true })
+  offerSentAt: Date | null;
+
   @ApiProperty({
     enum: ['booked', 'attended', 'no_show', 'offered', 'joined', 'declined'],
     default: 'booked',

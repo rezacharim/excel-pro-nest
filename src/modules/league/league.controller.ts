@@ -40,6 +40,7 @@ import {
   UpdateRegistrationDto,
   UpdateTrialDto,
   SendTrialInvitationDto,
+  SendImodelOfferDto,
 } from './dto/league.dto';
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,16 @@ export class LeaguePublicController {
   @ApiResponse({ status: 409, description: 'Player already registered' })
   register(@Body() dto: RegisterForLeagueDto, @Req() req: IpReq) {
     return this.leagueService.register(dto, clientIp(req));
+  }
+
+  @Get('imodel-offer/:token')
+  @ApiOperation({
+    summary:
+      'I-Model Team: the player an offer link was sent for, to prefill the form (public)',
+  })
+  @ApiParam({ name: 'token' })
+  imodelOffer(@Param('token') token: string) {
+    return this.leagueService.getImodelOffer(token);
   }
 
   @Post('trials')
@@ -375,5 +386,19 @@ export class LeagueAdminController {
     @Body() dto: SendTrialInvitationDto,
   ) {
     return this.leagueService.inviteTrial(id, dto);
+  }
+
+  @Post('trials/:id/offer')
+  @ApiOperation({
+    summary:
+      'Offer an I-Model Team spot: emails the family their personal registration link',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiBody({ type: SendImodelOfferDto })
+  offerImodel(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SendImodelOfferDto,
+  ) {
+    return this.leagueService.sendImodelOffer(id, dto);
   }
 }
