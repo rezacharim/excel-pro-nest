@@ -234,6 +234,29 @@ export class UsersService {
         marketingConsentAt: consentMarketing ? new Date() : null,
       };
 
+      // A family already on file (same email, same player name) is updating
+      // their child's details — "please register so we have your info on
+      // file" — not adding a second child. Update that record instead of
+      // creating a duplicate, and leave membership, plan and dates alone.
+      const existing = await this.findSamePlayer(email, fullname);
+      if (existing) {
+        const keep = new Set(['policy']);
+        if (existing.activePlan) keep.add('activePlan');
+        if (!consentMarketing) {
+          keep.add('marketingOptIn');
+          keep.add('marketingConsentAt');
+        }
+        for (const [key, value] of Object.entries(newUser)) {
+          if (keep.has(key)) continue;
+          if (value === null || value === undefined || value === '') continue;
+          (existing as unknown as Record<string, unknown>)[key] = value;
+        }
+        if (consentMarketing) existing.marketingOptOutAt = null;
+        const updated = await this.userRepository.save(existing);
+        console.log('Existing player updated from /register, ID:', updated.id);
+        return Object.assign(updated, { alreadyOnFile: true });
+      }
+
       // Save user
       const savedUser = await this.userRepository.save(newUser);
 
@@ -830,5 +853,21 @@ export class UsersService {
       await this.userRepository.save(u);
     }
     return { ok: true };
+  }
+
+  /** Same email and same player name (ignoring case and spacing). */
+  private async findSamePlayer(
+    email: string | undefined,
+    fullname: string | undefined,
+  ): Promise<User | null> {
+    const e = (email || '').trim().toLowerCase();
+    const norm = (v: string) =>
+      (v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!e || !fullname) return null;
+    const sameEmail = await this.userRepository
+      .createQueryBuilder('u')
+      .where('LOWER(u.email) = :e', { e })
+      .getMany();
+    return sameEmail.find((u) => norm(u.fullname) === norm(fullname)) ?? null;
   }
 }
