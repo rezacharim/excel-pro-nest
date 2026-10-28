@@ -234,6 +234,23 @@ export class InviteBackDto {
   resend?: boolean;
 }
 
+/** Referral program announcement to current families. */
+export class AnnounceReferralDto {
+  @ApiProperty({ type: [Number] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  userIds: number[];
+
+  @ApiProperty({
+    example: 'https://www.excelproso.com/indoor?src=friend&ref=',
+    description: 'Link base; the family player id is appended',
+  })
+  @IsString()
+  linkBase: string;
+}
+
 /** Why an account was suspended. Shown to admins; only some are emailed. */
 export const SUSPENSION_REASONS = [
   'late_payment',

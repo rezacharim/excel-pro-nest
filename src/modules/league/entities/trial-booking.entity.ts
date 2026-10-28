@@ -76,6 +76,33 @@ export class TrialBooking {
   @Column({ type: 'timestamp', nullable: true })
   scheduledFor: Date | null;
 
+  // ---- Player & Parent Agreement (added 2026-10-28) ----
+  // All nullable: synchronize adds them to the live table on the next boot
+  // without touching existing rows (see DANGER-typeorm-synchronize.md).
+
+  /** Which wording was accepted, e.g. "academy-1.0". */
+  @Column({ type: 'varchar', nullable: true })
+  agreementVersion: string | null;
+
+  /** The parent's typed name — the signature. */
+  @Column({ type: 'varchar', nullable: true })
+  parentSignature: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  agreementAcceptedAt: Date | null;
+
+  /** Rowan's Law confirmation. Valid 12 months. */
+  @Column({ type: 'boolean', nullable: true })
+  acceptedConcussion: boolean | null;
+
+  /** Photo / video consent. Null for players who registered before it was asked. */
+  @Column({ type: 'boolean', nullable: true })
+  consentPhoto: boolean | null;
+
+  /** Ticked "send me emails" (CASL express consent). */
+  @Column({ type: 'boolean', nullable: true })
+  consentMarketing: boolean | null;
+
   @ApiProperty({
     enum: ['booked', 'attended', 'no_show', 'offered', 'joined', 'declined'],
     default: 'booked',

@@ -5,12 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '../users/entities/user.entity';
 import { Payment } from '../payment/entities/payment.entity';
 import { PortalRequest } from './entities/portal-request.entity';
 import { Transfer } from '../transfer/entities/transfer.entity';
+import { LeagueRegistration } from '../league/entities/league-registration.entity';
 import { TransferStatus } from '../transfer/entities/enums/transfer-status.enum';
 import { SubscriptionPlan } from '../users/entities/enums/enums';
 import { RedisService } from '../../common/db/redis.service';
@@ -24,6 +25,15 @@ import {
 } from './dto/portal.dto';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** One friend who registered through the family's referral link. */
+export interface PortalReferral {
+  friend: string;
+  /** Paid — their spot is confirmed, and the reward is earned. */
+  joined: boolean;
+  reward: 'earned' | 'booked' | 'done' | null;
+  createdAt: Date;
+}
 
 export interface PortalPlayer {
   id: number;
@@ -71,6 +81,8 @@ export class PortalService {
     private readonly portalRequestRepository: Repository<PortalRequest>,
     @InjectRepository(Transfer)
     private readonly transferRepository: Repository<Transfer>,
+    @InjectRepository(LeagueRegistration)
+    private readonly registrationRepository: Repository<LeagueRegistration>,
     private readonly redisService: RedisService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
@@ -168,14 +180,41 @@ export class PortalService {
     };
   }
 
-  async me(email: string): Promise<{ email: string; players: PortalPlayer[] }> {
+  async me(email: string): Promise<{
+    email: string;
+    players: PortalPlayer[];
+    referrals: PortalReferral[];
+  }> {
     const normalized = this.normalizeEmail(email);
     const users = await this.findPlayersByEmail(normalized);
     const now = new Date();
     const players = await Promise.all(
       users.map((u) => this.toPortalPlayer(u, now)),
     );
-    return { email: normalized, players };
+    return {
+      email: normalized,
+      players,
+      referrals: await this.referralsFor(users.map((u) => u.id)),
+    };
+  }
+
+  /**
+   * Referral program progress for the family: friends who registered through
+   * their link. Only a first name and initial is shown — that family's
+   * details are theirs.
+   */
+  private async referralsFor(userIds: number[]): Promise<PortalReferral[]> {
+    if (userIds.length === 0) return [];
+    const rows = await this.registrationRepository.find({
+      where: { referredByUserId: In(userIds), status: Not(In(['withdrawn'])) },
+      order: { createdAt: 'DESC' },
+    });
+    return rows.map((r) => ({
+      friend: `${r.firstName} ${(r.lastName || '').charAt(0)}.`.trim(),
+      joined: r.status === 'confirmed',
+      reward: (r.referralRewardStatus as PortalReferral['reward']) ?? null,
+      createdAt: r.createdAt,
+    }));
   }
 
   /** The player must belong to the authenticated parent's email. */

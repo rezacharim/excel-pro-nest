@@ -1,3 +1,4 @@
+import { verifyUnsubscribeToken } from '../../common/email/unsubscribe-token';
 import {
   BadRequestException,
   Injectable,
@@ -160,6 +161,11 @@ export class UsersService {
         photoUrl,
         NationalIdCard,
         medicalNotes,
+        agreementVersion,
+        parentSignature,
+        acceptedConcussion,
+        consentPhoto,
+        consentMarketing,
       } = createUserDto;
 
       // Convert numeric values
@@ -219,6 +225,13 @@ export class UsersService {
         NationalIdCard: uploadedIdCardUrl || null,
         medicalNotes: medicalNotes || null,
         policy: true,
+        agreementVersion: agreementVersion || null,
+        parentSignature: parentSignature?.trim() || null,
+        agreementAcceptedAt: agreementVersion ? new Date() : null,
+        acceptedConcussion: acceptedConcussion ?? null,
+        consentPhoto: consentPhoto ?? null,
+        marketingOptIn: consentMarketing ?? null,
+        marketingConsentAt: consentMarketing ? new Date() : null,
       };
 
       // Save user
@@ -792,5 +805,30 @@ export class UsersService {
   async remove(id: number) {
     await this.userRepository.delete(id);
     return `This action removes a #${id} user`;
+  }
+
+  /**
+   * One-click unsubscribe from promotional email (CASL). Applies to every
+   * player on that email address. Receipts, payment reminders and session
+   * details the family asked for are not promotional and still go out.
+   */
+  async unsubscribe(email: string, token: string): Promise<{ ok: true }> {
+    const normalized = (email || '').trim().toLowerCase();
+    if (!normalized || !verifyUnsubscribeToken(normalized, token)) {
+      throw new BadRequestException(
+        'This unsubscribe link is not valid. Please reply to any of our emails with "unsubscribe" instead.',
+      );
+    }
+    const users = await this.userRepository
+      .createQueryBuilder('u')
+      .where('LOWER(u.email) = :email', { email: normalized })
+      .getMany();
+    const now = new Date();
+    for (const u of users) {
+      u.marketingOptOutAt = now;
+      u.marketingOptIn = false;
+      await this.userRepository.save(u);
+    }
+    return { ok: true };
   }
 }

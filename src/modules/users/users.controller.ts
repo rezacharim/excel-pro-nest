@@ -93,11 +93,17 @@ export class UsersController {
   })
   @ApiResponse({ status: 200, description: 'OTP verified successfully' })
   @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
-  async verifyEmailOtp(
-    @Body('email') email: string,
-    @Body('otp') otp: string,
-  ) {
+  async verifyEmailOtp(@Body('email') email: string, @Body('otp') otp: string) {
     return this.usersService.verifyEmailOtp(email, otp);
+  }
+
+  @Post('email-preferences/unsubscribe')
+  @ApiOperation({
+    summary:
+      'One-click unsubscribe from promotional email (public, signed link)',
+  })
+  unsubscribe(@Body() body: { email: string; token: string }) {
+    return this.usersService.unsubscribe(body?.email, body?.token);
   }
 
   @Post('register')

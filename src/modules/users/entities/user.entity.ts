@@ -191,6 +191,42 @@ export class User {
   @Column({ nullable: true, type: 'text' })
   medicalNotes: string | null;
 
+  // ---- Player & Parent Agreement (added 2026-10-28) ----
+  // All nullable: synchronize adds them to the live table on the next boot
+  // without touching existing rows (see DANGER-typeorm-synchronize.md).
+
+  /** Which wording was accepted, e.g. "academy-1.0". */
+  @Column({ type: 'varchar', nullable: true })
+  agreementVersion: string | null;
+
+  /** The parent's typed name — the signature. */
+  @Column({ type: 'varchar', nullable: true })
+  parentSignature: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  agreementAcceptedAt: Date | null;
+
+  /** Rowan's Law confirmation. Valid 12 months. */
+  @Column({ type: 'boolean', nullable: true })
+  acceptedConcussion: boolean | null;
+
+  /** Photo / video consent. Null for players who registered before it was asked. */
+  @Column({ type: 'boolean', nullable: true })
+  consentPhoto: boolean | null;
+
+  // ---- Email consent (CASL, added 2026-10-28) — nullable, safe for sync ----
+
+  /** Ticked "send me emails" at registration (express consent). */
+  @Column({ type: 'boolean', nullable: true })
+  marketingOptIn: boolean | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  marketingConsentAt: Date | null;
+
+  /** Set by the unsubscribe link. No promotional email is sent after this. */
+  @Column({ type: 'timestamp', nullable: true })
+  marketingOptOutAt: Date | null;
+
   @Column({ nullable: true, type: 'timestamp' })
   holdStartedAt: Date | null;
 

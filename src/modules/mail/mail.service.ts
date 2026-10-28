@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { unsubscribeUrl } from '../../common/email/unsubscribe-token';
 import { SettingsService } from '../settings/settings.service';
 import * as nodemailer from 'nodemailer';
 
@@ -1008,7 +1009,7 @@ export class MailService {
           <p>همچنین ${first} را به <strong>یک جلسه‌ی تمرین رایگان</strong> در ${this.esc(details.where)} دعوت می‌کنیم — بدون هزینه و بدون تعهد.</p>
           <p><a href="${details.bookUrl}" style="color:${BRAND_RED};font-weight:bold;">رزرو جلسه‌ی رایگان</a></p>
         </div>
-        ${this.marketingFooter()}`;
+        ${this.marketingFooter(to)}`;
       return await this.send(
         to,
         `A free session for ${playerName} - we would love to see you back`,
@@ -1020,10 +1021,101 @@ export class MailService {
     }
   }
 
-  /** Unsubscribe line and mailing address for promotional email (CASL). */
-  private marketingFooter(): string {
+  /**
+   * Referral program announcement, sent from Dashboard → Memberships to
+   * current families. Each family gets its own link (it carries one of their
+   * player ids, never a name).
+   */
+  async sendReferralProgramInvite(
+    to: string,
+    parentName: string | null,
+    playerName: string,
+    link: string,
+  ): Promise<boolean> {
+    try {
+      const share = encodeURIComponent(
+        `My child trains at Excel Pro Soccer Academy at Richmond Hill Green Dome and we love it. The indoor season is on and new players can still join (ages 6–18). Register here: ${link}`,
+      );
+      const body = `
+        ${this.heading('Bring a friend — earn a private session with Coach Reza Abedian')}
+        <p>${parentName ? `Hi ${this.esc(parentName)},` : 'Hi,'}</p>
+        <p>Thank you for being part of Excel Pro this season. The best players we have came to us through families like yours, so we are saying thank you properly:</p>
+        <div style="background:${BRAND_NAVY};color:#ffffff;border-radius:8px;padding:20px 24px;margin:20px 0;text-align:center;">
+          <div style="font-size:13px;letter-spacing:2px;color:${BRAND_RED};font-weight:bold;">FOR EVERY FRIEND WHO JOINS</div>
+          <div style="font-size:20px;font-weight:bold;margin-top:6px;">A private training session for ${this.esc(playerName.split(' ')[0])}</div>
+          <div style="font-size:15px;color:#d0d0e0;margin-top:4px;">with Coach Reza Abedian at his private gym &mdash; one-on-one or in a small group</div>
+        </div>
+        <p><strong>How it works</strong></p>
+        <ol style="padding-left:20px;line-height:1.9;color:#333333;">
+          <li>Share your personal link below with friends or family.</li>
+          <li>They register their child for the Indoor Season through it and pay.</li>
+          <li>We email you and arrange ${this.esc(playerName.split(' ')[0])}'s session with Coach Reza &mdash; date and time agreed with you.</li>
+        </ol>
+        <p>No limit — two friends, two sessions.</p>
+        <p style="margin:18px 0 6px;"><strong>Your link:</strong><br/><a href="${link}" style="color:${BRAND_RED};word-break:break-all;">${link}</a></p>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="https://wa.me/?text=${share}" style="display:inline-block;background-color:#25D366;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 28px;border-radius:6px;font-size:16px;">Share on WhatsApp</a>
+        </div>
+        <p style="font-size:13px;color:#666;">Counts for new players registering for the Indoor Season through your link. You can also see your link and your progress any time in your account at excelproso.com/account.</p>
+        <hr style="border:none;border-top:1px solid #e5e5ea;margin:28px 0;" />
+        <div dir="rtl" style="text-align:right;">
+          <p>${parentName ? `سلام ${this.esc(parentName)}،` : 'سلام،'}</p>
+          <p>به ازای هر دوست یا فامیلی که با لینک شما برای فصل Indoor ثبت‌نام و پرداخت کند، فرزندتان یک <strong>جلسه‌ی تمرین خصوصی (تکی یا گروه کوچک) با مربی رضا عابدیان در باشگاه شخصی ایشان</strong> هدیه می‌گیرد. تاریخ و ساعت با هماهنگی شما تعیین می‌شود. محدودیتی ندارد — دو دوست، دو جلسه.</p>
+          <p>لینک شما: <a href="${link}" style="color:${BRAND_RED};">${link}</a></p>
+        </div>
+        ${this.marketingFooter(to, 'a current member')}`;
+      return await this.send(
+        to,
+        'Bring a friend to Excel Pro - earn a private session with Coach Reza Abedian',
+        this.layout('Bring a friend', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendReferralProgramInvite failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /** Sent to the referring family when their friend's spot is paid. */
+  async sendReferralRewardEarned(
+    to: string,
+    parentName: string | null,
+    playerName: string,
+    friendFirstName: string,
+    totalEarned: number,
+  ): Promise<boolean> {
+    try {
+      const first = this.esc(playerName.split(' ')[0] || playerName);
+      const body = `
+        ${this.heading('You have earned a private session!')}
+        <p>${parentName ? `Hi ${this.esc(parentName)},` : 'Hi,'}</p>
+        <p><strong>${this.esc(friendFirstName)}</strong> has just joined the Indoor Season through your link — thank you!</p>
+        <p>${first} has earned a <strong>private training session with Coach Reza Abedian</strong> at his private gym &mdash; one-on-one or in a small group. We will contact you to agree a date and time that suits you.</p>
+        ${totalEarned > 1 ? `<p>That makes <strong>${totalEarned}</strong> private sessions earned so far. Keep sharing — every friend who joins adds another.</p>` : '<p>Every other friend who joins through your link adds another session.</p>'}
+        <p style="font-size:13px;color:#666;">Your link and progress are in your account at <a href="https://www.excelproso.com/account" style="color:${BRAND_RED};">excelproso.com/account</a>.</p>`;
+      return await this.send(
+        to,
+        `You earned a private session with Coach Reza Abedian`,
+        this.layout('Private session earned', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendReferralRewardEarned failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Required in every promotional email (CASL): who is sending, how to reach
+   * them, a mailing address, and an unsubscribe link that works without
+   * logging in. Transactional email (receipts, reminders, session details)
+   * does not use this.
+   */
+  private marketingFooter(to: string, relation = 'a former member'): string {
     const address = (process.env.ACADEMY_MAILING_ADDRESS || '').trim();
-    return `<p style="font-size:12px;color:#888;margin-top:24px;">You are receiving this because ${this.esc(ACADEMY_NAME)} has your family on file as a former member. If you would rather not receive invitations like this, reply with &ldquo;unsubscribe&rdquo; and we will not send them again.${address ? `<br/>${this.esc(ACADEMY_NAME)}, ${this.esc(address)}` : ''}</p>`;
+    return `<div style="font-size:12px;color:#888;margin-top:28px;border-top:1px solid #e5e5ea;padding-top:14px;line-height:1.7;">
+      Sent by ${this.esc(ACADEMY_NAME)}${address ? `, ${this.esc(address)}` : ''} &middot; ${ACADEMY_PHONE} &middot; ${ACADEMY_EMAIL}<br/>
+      You are receiving this because your family is on file with us as ${relation}.
+      <a href="${unsubscribeUrl(to)}" style="color:#888;text-decoration:underline;">Unsubscribe from promotional emails</a> at any time &mdash; it takes one click. Receipts and messages about your registration will still reach you.
+    </div>`;
   }
 
   private esc(value: unknown): string {

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 
 import { LeagueSeason } from './entities/league-season.entity';
 import {
@@ -355,8 +355,24 @@ export class LeagueService {
       dateOfBirth: dto.dateOfBirth,
     });
 
+    const referrer = await this.resolveReferrer(
+      dto.referrerId,
+      email,
+      isNewPlayer,
+    );
+
+    // CASL: the separate, unticked "send me emails" box. Ticking it again
+    // after an unsubscribe is a fresh, express consent.
+    if (dto.consentMarketing && user) {
+      user.marketingOptIn = true;
+      user.marketingConsentAt = new Date();
+      user.marketingOptOutAt = null;
+      await this.userRepo.save(user);
+    }
+
     const registration = await this.buildRegistration(season, {
       isNewPlayer,
+      referredByUserId: referrer?.id ?? null,
       userId: user?.id ?? null,
       ageGroup: dto.ageGroup,
       firstName: dto.firstName.trim(),
@@ -384,8 +400,63 @@ export class LeagueService {
     await this.notifyAcademy(season, registration, {
       via: 'website form',
       isNewPlayer,
+      referredBy: referrer
+        ? `${referrer.parent_name || 'Family of'} ${referrer.parent_name ? `(${referrer.fullname})` : referrer.fullname}`.trim()
+        : undefined,
     });
     return this.toRegistrationView(registration, season);
+  }
+
+  /**
+   * Referral program: who shared the link a new family registered through.
+   * Counts only when the player is new to the academy, the referring player
+   * exists, and the family is not referring itself (same email).
+   */
+  private async resolveReferrer(
+    referrerId: number | undefined,
+    registrantEmail: string,
+    isNewPlayer: boolean,
+  ): Promise<User | null> {
+    if (!referrerId || !isNewPlayer) return null;
+    const ref = await this.userRepo.findOne({ where: { id: referrerId } });
+    if (!ref) return null;
+    if ((ref.email || '').trim().toLowerCase() === registrantEmail) return null;
+    return ref;
+  }
+
+  /** Admin: every registration that came through a family's referral link. */
+  async listReferrals() {
+    const rows = await this.registrationRepo.find({
+      where: { referredByUserId: Not(IsNull()) },
+      order: { createdAt: 'DESC' },
+    });
+    const ids = [...new Set(rows.map((r) => r.referredByUserId as number))];
+    const referrers = ids.length
+      ? await this.userRepo.find({ where: { id: In(ids) } })
+      : [];
+    const byId = new Map(referrers.map((u) => [u.id, u]));
+    return rows.map((r) => {
+      const ref = byId.get(r.referredByUserId as number);
+      return {
+        registrationId: r.id,
+        seasonId: r.seasonId,
+        friend: `${r.firstName} ${r.lastName}`.trim(),
+        friendAgeGroup: r.ageGroup,
+        friendParent: r.parentName,
+        friendStatus: r.status,
+        createdAt: r.createdAt,
+        rewardStatus: r.referralRewardStatus,
+        referrer: ref
+          ? {
+              userId: ref.id,
+              player: ref.fullname,
+              parent: ref.parent_name,
+              email: ref.email,
+              phone: ref.phone_number,
+            }
+          : null,
+      };
+    });
   }
 
   /**
@@ -1010,8 +1081,71 @@ export class LeagueService {
     }
 
     return this.toRegistrationView(
-      await this.registrationRepo.save(registration),
+      await this.awardReferral(await this.registrationRepo.save(registration)),
     );
+  }
+
+  /**
+   * Referral program: the moment a referred family's spot is confirmed (paid),
+   * the family who referred them has earned a private session with Coach
+   * Reza Abedian. They are emailed, the academy is alerted, and the reward
+   * shows in Dashboard → Referrals to book. Runs once per registration.
+   */
+  private async awardReferral(
+    r: LeagueRegistration,
+  ): Promise<LeagueRegistration> {
+    if (
+      r.status !== 'confirmed' ||
+      !r.referredByUserId ||
+      r.referralRewardStatus
+    ) {
+      return r;
+    }
+    r.referralRewardStatus = 'earned';
+    const saved = await this.registrationRepo.save(r);
+    try {
+      const ref = await this.userRepo.findOne({
+        where: { id: r.referredByUserId },
+      });
+      if (ref?.email) {
+        const earned = await this.registrationRepo.count({
+          where: {
+            referredByUserId: In(
+              (
+                await this.userRepo.find({
+                  where: { email: ref.email },
+                  select: ['id'],
+                })
+              ).map((u) => u.id),
+            ),
+            referralRewardStatus: Not(IsNull()),
+          },
+        });
+        await this.mailService.sendReferralRewardEarned(
+          ref.email,
+          ref.parent_name || null,
+          ref.fullname,
+          r.firstName,
+          earned,
+        );
+      }
+      await this.mailService.sendAdminAlert(
+        `Referral reward earned: ${ref?.fullname ?? 'a family'}`,
+        'A family earned a private session',
+        `<strong>${r.firstName} ${r.lastName}</strong> has paid for the indoor season through a referral link. The referring family has earned a private session with Coach Reza Abedian (one-on-one or small group, at his private gym). Agree a date and time with them and mark it in Dashboard &rarr; Referrals.`,
+        {
+          'New player': `${r.firstName} ${r.lastName} (${r.ageGroup})`,
+          'Referred by': ref
+            ? `${ref.parent_name || ''} (${ref.fullname})`.trim()
+            : `player #${r.referredByUserId}`,
+          'Referrer email': ref?.email,
+          'Referrer phone': ref?.phone_number,
+        },
+      );
+    } catch (error) {
+      this.logger.error(`Referral reward email failed: ${error.message}`);
+    }
+    return saved;
   }
 
   /**
@@ -1082,7 +1216,9 @@ export class LeagueService {
       registration.secondAmount = amount;
     }
 
-    const saved = await this.registrationRepo.save(registration);
+    const saved = await this.awardReferral(
+      await this.registrationRepo.save(registration),
+    );
 
     try {
       await this.mailService.sendPaymentReceived(
@@ -1234,6 +1370,12 @@ export class LeagueService {
       preferredWhen: dto.preferredWhen?.trim() ?? null,
       howHeard: (await this.referralNote(dto)) ?? dto.howHeard?.trim() ?? null,
       status: 'booked',
+      agreementVersion: dto.agreementVersion ?? null,
+      parentSignature: dto.parentSignature?.trim() || null,
+      agreementAcceptedAt: dto.agreementVersion ? new Date() : null,
+      acceptedConcussion: dto.acceptedConcussion ?? null,
+      consentPhoto: dto.consentPhoto ?? null,
+      consentMarketing: dto.consentMarketing ?? null,
     });
     const saved = await this.trialRepo.save(booking);
 
@@ -1665,7 +1807,7 @@ export class LeagueService {
   private async notifyAcademy(
     season: LeagueSeason,
     r: LeagueRegistration,
-    opts: { via: string; isNewPlayer: boolean },
+    opts: { via: string; isNewPlayer: boolean; referredBy?: string },
   ) {
     try {
       const player = `${r.firstName} ${r.lastName}`.trim();
@@ -1684,6 +1826,11 @@ export class LeagueService {
           'New to the academy': opts.isNewPlayer
             ? 'Yes'
             : 'No (existing member)',
+          ...(opts.referredBy
+            ? {
+                'Referred by': `${opts.referredBy} — private session reward once paid`,
+              }
+            : {}),
           Status:
             r.status === 'waitlist'
               ? 'Waiting list - age group full, told NOT to pay yet'

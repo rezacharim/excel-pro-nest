@@ -339,6 +339,15 @@ export class LeagueAdminController {
     res.end(buffer);
   }
 
+  // ---- referrals ----
+  @Get('referrals')
+  @ApiOperation({
+    summary: 'Registrations that came through a family referral link',
+  })
+  referrals() {
+    return this.leagueService.listReferrals();
+  }
+
   // ---- trials ----
   @Get('trials')
   @ApiOperation({ summary: 'Trial requests' })

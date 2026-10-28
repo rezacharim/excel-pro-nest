@@ -36,6 +36,7 @@ import {
   QuickAddPlayerDto,
   InviteParentsDto,
   InviteBackDto,
+  AnnounceReferralDto,
 } from './dto/membership.dto';
 
 @ApiTags('Membership')
@@ -145,6 +146,15 @@ export class MembershipController {
   @ApiBody({ type: InviteParentsDto })
   inviteParents(@Body() dto: InviteParentsDto) {
     return this.membershipService.inviteParents(dto);
+  }
+
+  @Post('announce-referral')
+  @ApiOperation({
+    summary: 'Email families their referral link (one email per family)',
+  })
+  @ApiBody({ type: AnnounceReferralDto })
+  announceReferral(@Body() dto: AnnounceReferralDto) {
+    return this.membershipService.announceReferral(dto);
   }
 
   @Post('invite-back')

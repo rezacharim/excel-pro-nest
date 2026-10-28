@@ -195,6 +195,21 @@ export class LeagueRegistration {
   @Column({ type: 'boolean', nullable: true })
   acceptedConcussion: boolean | null;
 
+  // ---- Referral program (added 2026-10-28) — nullable, safe for sync ----
+
+  /** The player (users.id) whose family shared the link this family used. */
+  @ApiProperty({ required: false })
+  @Column({ type: 'int', nullable: true })
+  referredByUserId: number | null;
+
+  /**
+   * The referring family's reward for this registration:
+   * null until the new family pays, then earned → booked → done.
+   */
+  @ApiProperty({ required: false, enum: ['earned', 'booked', 'done'] })
+  @Column({ type: 'varchar', nullable: true })
+  referralRewardStatus: string | null;
+
   @ApiProperty({ required: false })
   @Column({ type: 'text', nullable: true })
   adminNote: string | null;

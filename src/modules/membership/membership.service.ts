@@ -34,6 +34,7 @@ import {
   QuickAddPlayerDto,
   InviteParentsDto,
   InviteBackDto,
+  AnnounceReferralDto,
 } from './dto/membership.dto';
 
 export interface MembershipOverviewRow {
@@ -465,6 +466,78 @@ export class MembershipService {
   }
 
   /**
+   * Referral program: email each family its own link. One email per family
+   * address; the link carries the first ticked player's id. Families whose
+   * note says "unsubscribe" are skipped, and each send is noted on the player.
+   */
+  async announceReferral(dto: AnnounceReferralDto): Promise<{
+    sent: number;
+    skipped: { fullname: string; reason: string }[];
+    failed: { fullname: string; reason: string }[];
+  }> {
+    const skipped: { fullname: string; reason: string }[] = [];
+    const failed: { fullname: string; reason: string }[] = [];
+    let sent = 0;
+    const families = new Map<string, User[]>();
+    for (const userId of dto.userIds) {
+      let user: User;
+      try {
+        user = await this.getUserOrFail(userId);
+      } catch {
+        failed.push({ fullname: `#${userId}`, reason: 'Player not found' });
+        continue;
+      }
+      const email = (user.email || '').trim().toLowerCase();
+      if (!email) {
+        skipped.push({ fullname: user.fullname, reason: 'No email address' });
+        continue;
+      }
+      if (
+        user.marketingOptOutAt ||
+        /unsubscrib/i.test(user.internalNote ?? '')
+      ) {
+        skipped.push({
+          fullname: user.fullname,
+          reason: 'Unsubscribed from promotional email',
+        });
+        continue;
+      }
+      families.set(email, [...(families.get(email) ?? []), user]);
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [email, kids] of families) {
+      const names = kids.map((k) => k.fullname).filter(Boolean);
+      const playerName =
+        names.length <= 1
+          ? names[0] || 'your child'
+          : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+      const ok = await this.mailService.sendReferralProgramInvite(
+        email,
+        kids[0].parent_name || null,
+        playerName,
+        `${dto.linkBase}${kids[0].id}`,
+      );
+      if (!ok) {
+        for (const k of kids) {
+          failed.push({
+            fullname: k.fullname,
+            reason: 'Email could not be sent',
+          });
+        }
+        continue;
+      }
+      for (const k of kids) {
+        const line = `Referral program email sent ${today}`;
+        k.internalNote = k.internalNote ? `${k.internalNote}\n${line}` : line;
+        await this.userRepository.save(k);
+      }
+      sent += 1;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return { sent, skipped, failed };
+  }
+
+  /**
    * Invitation type 1: families who left are invited back for a free session.
    *
    * - One email per family: siblings sharing an address get one message
@@ -500,10 +573,13 @@ export class MembershipService {
         skipped.push({ fullname: user.fullname, reason: 'No email address' });
         continue;
       }
-      if (/unsubscrib/i.test(user.internalNote ?? '')) {
+      if (
+        user.marketingOptOutAt ||
+        /unsubscrib/i.test(user.internalNote ?? '')
+      ) {
         skipped.push({
           fullname: user.fullname,
-          reason: 'Asked not to be emailed',
+          reason: 'Unsubscribed from promotional email',
         });
         continue;
       }

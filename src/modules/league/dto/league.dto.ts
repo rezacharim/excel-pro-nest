@@ -179,6 +179,23 @@ export class RegisterForLeagueDto {
   @IsOptional()
   @IsBoolean()
   acceptedConcussion?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Player id of the family whose referral link was used. Counts only for a player new to the academy.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  referrerId?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Ticked "send me news and offers by email" — express consent under CASL',
+  })
+  @IsOptional()
+  @IsBoolean()
+  consentMarketing?: boolean;
 }
 
 /** Register an existing player from the parent dashboard (details prefilled). */
@@ -297,6 +314,14 @@ export class UpdateRegistrationDto {
   @IsOptional()
   @IsIn(REGISTRATION_STATUSES as unknown as string[])
   status?: string;
+
+  @ApiPropertyOptional({
+    enum: ['earned', 'booked', 'done'],
+    description: "The referring family's private-session reward",
+  })
+  @IsOptional()
+  @IsIn(['earned', 'booked', 'done'])
+  referralRewardStatus?: string;
 
   @ApiPropertyOptional({ example: 'Pars FC U13' })
   @IsOptional()
@@ -705,6 +730,34 @@ export class BookTrialDto {
   @Type(() => Number)
   @IsInt()
   referrerId?: number;
+
+  @ApiPropertyOptional({ example: 'academy-1.0' })
+  @IsOptional()
+  @IsString()
+  agreementVersion?: string;
+
+  @ApiPropertyOptional({ description: "Parent's typed name (signature)" })
+  @IsOptional()
+  @IsString()
+  parentSignature?: string;
+
+  @ApiPropertyOptional({ description: "Rowan's Law confirmation" })
+  @IsOptional()
+  @IsBoolean()
+  acceptedConcussion?: boolean;
+
+  @ApiPropertyOptional({ description: 'Photo / video consent' })
+  @IsOptional()
+  @IsBoolean()
+  consentPhoto?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Ticked "send me news and offers by email" — express consent under CASL',
+  })
+  @IsOptional()
+  @IsBoolean()
+  consentMarketing?: boolean;
 }
 
 export class UpdateTrialDto {

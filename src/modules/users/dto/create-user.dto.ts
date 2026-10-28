@@ -165,6 +165,36 @@ export class CreateUserDto {
   @MaxLength(1000)
   medicalNotes?: string;
 
+  @ApiPropertyOptional({ example: 'academy-1.0' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  agreementVersion?: string;
+
+  @ApiPropertyOptional({ description: "Parent's typed name (signature)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  parentSignature?: string;
+
+  @ApiPropertyOptional({ description: "Rowan's Law confirmation" })
+  @IsOptional()
+  @IsBoolean()
+  acceptedConcussion?: boolean;
+
+  @ApiPropertyOptional({ description: 'Photo / video consent' })
+  @IsOptional()
+  @IsBoolean()
+  consentPhoto?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Ticked "send me news and offers by email" — express consent under CASL',
+  })
+  @IsOptional()
+  @IsBoolean()
+  consentMarketing?: boolean;
+
   @ApiProperty({ enum: Gender, description: 'Gender of the user' })
   @IsNotEmpty()
   @IsEnum(Gender)
