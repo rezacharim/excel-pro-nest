@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Res,
@@ -28,6 +30,7 @@ import {
   HoldMembershipDto,
   ImportPlayersDto,
   RecordPaymentDto,
+  UpdatePaymentDto,
   SetPlanDto,
   SuspendMembershipDto,
   UpdatePlayerNotesDto,
@@ -246,5 +249,41 @@ export class MembershipController {
     @Body() dto: RecordPaymentDto,
   ) {
     return this.membershipService.recordPayment(userId, dto);
+  }
+
+  // Declared last so the fixed paths above ('overview', 'export/emails'…)
+  // are matched before these parameterised ones.
+  @Get(':userId/payments')
+  @ApiOperation({
+    summary:
+      'Every payment recorded for a player, with the season registration each one counts towards',
+  })
+  @ApiParam({ name: 'userId', type: Number })
+  listPayments(@Param('userId', ParseIntPipe) userId: number) {
+    return this.membershipService.listPayments(userId);
+  }
+
+  @Patch('payments/:paymentId')
+  @ApiOperation({
+    summary:
+      'Correct a payment (amount, date received, method, note, which season it counts towards)',
+  })
+  @ApiParam({ name: 'paymentId', type: Number })
+  @ApiBody({ type: UpdatePaymentDto })
+  updatePayment(
+    @Param('paymentId', ParseIntPipe) paymentId: number,
+    @Body() dto: UpdatePaymentDto,
+  ) {
+    return this.membershipService.updatePayment(paymentId, dto);
+  }
+
+  @Delete('payments/:paymentId')
+  @ApiOperation({
+    summary:
+      'Delete a payment entered by mistake; also undoes it on the season registration and the paid period',
+  })
+  @ApiParam({ name: 'paymentId', type: Number })
+  deletePayment(@Param('paymentId', ParseIntPipe) paymentId: number) {
+    return this.membershipService.deletePayment(paymentId);
   }
 }

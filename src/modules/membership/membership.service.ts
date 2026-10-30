@@ -19,6 +19,7 @@ import {
   TShirtSize,
 } from '../users/entities/enums/enums';
 import { MailService } from '../mail/mail.service';
+import { LeagueService, PaymentLink } from '../league/league.service';
 import {
   ExtendMembershipDto,
   HoldMembershipDto,
@@ -27,6 +28,7 @@ import {
   ImportPlayersResult,
   ImportSkippedRow,
   RecordPaymentDto,
+  UpdatePaymentDto,
   SuspendMembershipDto,
   UpdatePlayerNotesDto,
   SetRenewalDateDto,
@@ -82,6 +84,29 @@ export interface MemberProgram {
   balance: number;
 }
 
+/** One payment as shown in Memberships → Payments (edit / delete). */
+export interface PlayerPayment {
+  id: number;
+  amount: number;
+  method: string;
+  type: string;
+  status: string;
+  periodLabel: string | null;
+  note: string | null;
+  /** The day the money arrived (stored as the row's createdAt). */
+  paidAt: Date;
+  subscriptionEndDate: Date | null;
+  isFirstTimePayment: boolean;
+  countsToward: PaymentLink | null;
+}
+
+export interface DeletePaymentResult {
+  deletedId: number;
+  /** True when the paid period was put back to the previous payment's. */
+  periodRestored: boolean;
+  row: MembershipOverviewRow;
+}
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -123,6 +148,7 @@ export class MembershipService {
     @InjectRepository(Payment)
     private readonly paymentRepository: Repository<Payment>,
     private readonly mailService: MailService,
+    private readonly leagueService: LeagueService,
   ) {}
 
   private toOverviewRow(user: User, now = new Date()): MembershipOverviewRow {
@@ -878,7 +904,20 @@ export class MembershipService {
         userId: user.id,
         isFirstTimePayment: false,
       });
-      await this.paymentRepository.save(payment);
+      const savedLeague = await this.paymentRepository.save(payment);
+      const leaguePaidAt = dto.paidAt ? parseCalendarDay(dto.paidAt) : now;
+      if (dto.paidAt && !isNaN(leaguePaidAt.getTime())) {
+        await this.paymentRepository.update(savedLeague.id, {
+          createdAt: leaguePaidAt,
+        });
+      }
+      if (dto.registrationId) {
+        await this.leagueService.linkExistingPayment(
+          dto.registrationId,
+          savedLeague,
+          isNaN(leaguePaidAt.getTime()) ? now : leaguePaidAt,
+        );
+      }
 
       // Best-effort email; never let it break the request
       try {
@@ -960,6 +999,16 @@ export class MembershipService {
       });
     }
 
+    // Count the same money towards the player's season registration, so it
+    // is entered once and shows on Dashboard → League too.
+    if (dto.registrationId) {
+      await this.leagueService.linkExistingPayment(
+        dto.registrationId,
+        savedPayment,
+        paidAtValid,
+      );
+    }
+
     user.currentSubscriptionEndDate = newEnd;
     user.currentSubscriptionStartDate = new Date(base);
     user.subscriptionCounter = (user.subscriptionCounter ?? 0) + 1;
@@ -994,6 +1043,157 @@ export class MembershipService {
     }
 
     return this.toOverviewRow(saved);
+  }
+
+  /** Every payment recorded for one player, newest first, for editing. */
+  async listPayments(userId: number): Promise<PlayerPayment[]> {
+    await this.getUserOrFail(userId);
+    const payments = await this.paymentRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC', id: 'DESC' },
+    });
+    const links = await this.leagueService.findLinkForPayments(
+      payments.map((p) => p.id),
+    );
+    return payments.map((p) => this.toPlayerPayment(p, links.get(p.id)));
+  }
+
+  private toPlayerPayment(p: Payment, link?: PaymentLink): PlayerPayment {
+    return {
+      id: p.id,
+      amount: Number(p.amount),
+      method: p.method,
+      type: p.type,
+      status: p.status,
+      periodLabel: p.periodLabel ?? null,
+      note: p.note ?? null,
+      paidAt: p.createdAt,
+      subscriptionEndDate: p.subscriptionEndDate ?? null,
+      isFirstTimePayment: !!p.isFirstTimePayment,
+      countsToward: link ?? null,
+    };
+  }
+
+  private async getPaymentOrFail(paymentId: number): Promise<Payment> {
+    const payment = await this.paymentRepository.findOne({
+      where: { id: paymentId },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
+    return payment;
+  }
+
+  /**
+   * Correct a payment keyed in wrongly: amount, date received, method, note,
+   * and which season registration it counts towards. A linked installment
+   * follows the new amount and date. The paid period is not touched — that
+   * is what "Change paid dates" is for.
+   */
+  async updatePayment(
+    paymentId: number,
+    dto: UpdatePaymentDto,
+  ): Promise<PlayerPayment> {
+    const payment = await this.getPaymentOrFail(paymentId);
+
+    let paidAt: Date | null = null;
+    if (dto.paidAt) {
+      paidAt = parseCalendarDay(dto.paidAt);
+      if (isNaN(paidAt.getTime())) {
+        throw new BadRequestException('Invalid payment date');
+      }
+    }
+
+    const changes: Partial<Payment> = {};
+    if (dto.amount !== undefined) changes.amount = dto.amount;
+    if (dto.method !== undefined) changes.method = dto.method;
+    if (dto.note !== undefined) changes.note = dto.note.trim() || null;
+    if (paidAt) changes.createdAt = paidAt;
+    if (Object.keys(changes).length) {
+      await this.paymentRepository.update(payment.id, changes);
+    }
+    const updated = await this.getPaymentOrFail(payment.id);
+
+    const links = await this.leagueService.findLinkForPayments([payment.id]);
+    const current = links.get(payment.id);
+
+    if (dto.registrationId !== undefined) {
+      const target = dto.registrationId;
+      if (!target || target !== current?.registrationId) {
+        if (current) await this.leagueService.unlinkPayment(payment.id);
+        if (target) {
+          await this.leagueService.linkExistingPayment(
+            target,
+            updated,
+            new Date(updated.createdAt),
+          );
+        }
+      } else {
+        await this.leagueService.syncLinkedPayment(
+          payment.id,
+          Number(updated.amount),
+          paidAt,
+        );
+      }
+    } else if (current) {
+      await this.leagueService.syncLinkedPayment(
+        payment.id,
+        Number(updated.amount),
+        paidAt,
+      );
+    }
+
+    const after = await this.leagueService.findLinkForPayments([payment.id]);
+    return this.toPlayerPayment(updated, after.get(payment.id));
+  }
+
+  /**
+   * Remove a payment entered by mistake (a duplicate, the wrong player).
+   * It stops counting towards any season registration, the player's payment
+   * count goes down, and if this payment had set the current paid period the
+   * period goes back to what the previous payment gave them.
+   */
+  async deletePayment(paymentId: number): Promise<DeletePaymentResult> {
+    const payment = await this.getPaymentOrFail(paymentId);
+    const user = await this.getUserOrFail(payment.userId);
+
+    await this.leagueService.unlinkPayment(payment.id);
+    await this.paymentRepository.delete({ id: payment.id });
+
+    let periodRestored = false;
+    if (payment.type !== 'league') {
+      user.subscriptionCounter = Math.max(
+        0,
+        (user.subscriptionCounter ?? 0) - 1,
+      );
+
+      const sameDay = (a?: Date | null, b?: Date | null) =>
+        !!a &&
+        !!b &&
+        new Date(a).toISOString().slice(0, 10) ===
+          new Date(b).toISOString().slice(0, 10);
+
+      if (
+        payment.subscriptionEndDate &&
+        sameDay(payment.subscriptionEndDate, user.currentSubscriptionEndDate)
+      ) {
+        const previous = await this.paymentRepository.find({
+          where: { userId: user.id, type: 'membership' },
+          order: { createdAt: 'DESC', id: 'DESC' },
+        });
+        const last = previous.find((p) => p.subscriptionEndDate);
+        if (last) {
+          user.currentSubscriptionEndDate = last.subscriptionEndDate;
+          user.currentSubscriptionStartDate = new Date(last.createdAt);
+          periodRestored = true;
+        }
+      }
+      await this.userRepository.save(user);
+    }
+
+    return {
+      deletedId: payment.id,
+      periodRestored,
+      row: this.toOverviewRow(user),
+    };
   }
 
   private static readonly IMPORT_PLANS: string[] = [

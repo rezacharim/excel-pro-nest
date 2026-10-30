@@ -60,6 +60,15 @@ const OCCUPYING: LeagueRegistrationStatus[] = [
  * treats as the league, and the I-Model page always asks for it by slug.
  */
 const IMODEL_SLUG = 'imodel';
+
+/** Which season registration (and installment) a payment counts towards. */
+export interface PaymentLink {
+  registrationId: number;
+  seasonName: string;
+  ageGroup: string;
+  installment: 1 | 2;
+}
+
 const IMODEL_SEASON: Partial<LeagueSeason> = {
   name: 'I-Model Team Summer 2027',
   slug: IMODEL_SLUG,
@@ -1309,6 +1318,133 @@ export class LeagueService implements OnModuleInit {
     }
 
     return this.toRegistrationView(saved);
+  }
+
+  /**
+   * Count an already-saved payment towards a season registration, without
+   * creating a second payments row. Used when money is recorded from
+   * Dashboard → Memberships, so a family's payment is entered once and shows
+   * on both screens. Fills the first unpaid installment.
+   *
+   * The indoor season is stored as one installment of the full fee; when a
+   * family pays part of it now (e.g. $455 of $835) the rest becomes the
+   * second installment, so the balance can be recorded later.
+   */
+  async linkExistingPayment(
+    registrationId: number,
+    payment: Payment,
+    paidAt: Date,
+  ): Promise<LeagueRegistration> {
+    const registration = await this.registrationRepo.findOne({
+      where: { id: registrationId },
+    });
+    if (!registration) throw new NotFoundException('Registration not found');
+    if (registration.userId !== payment.userId) {
+      throw new BadRequestException(
+        'That season registration belongs to a different player',
+      );
+    }
+    const amount = Number(payment.amount);
+    const fee = Number(registration.feeTotal);
+
+    if (!registration.firstPaidAt) {
+      registration.firstPaidAt = paidAt;
+      registration.firstPaymentId = payment.id;
+      registration.firstAmount = amount;
+      const rest = Number((fee - amount).toFixed(2));
+      if (!registration.secondPaidAt && rest > 0) {
+        registration.secondAmount = rest;
+      }
+      if (registration.status === 'pending_payment') {
+        registration.status = 'confirmed';
+      }
+    } else if (!registration.secondPaidAt) {
+      registration.secondPaidAt = paidAt;
+      registration.secondPaymentId = payment.id;
+      registration.secondAmount = amount;
+    } else {
+      throw new ConflictException(
+        'Both payments for this season are already recorded',
+      );
+    }
+
+    return this.awardReferral(await this.registrationRepo.save(registration));
+  }
+
+  /** The registration (and which installment) each payment counts towards. */
+  async findLinkForPayments(
+    paymentIds: number[],
+  ): Promise<Map<number, PaymentLink>> {
+    const map = new Map<number, PaymentLink>();
+    if (!paymentIds.length) return map;
+    const regs = await this.registrationRepo.find({
+      where: [
+        { firstPaymentId: In(paymentIds) },
+        { secondPaymentId: In(paymentIds) },
+      ],
+    });
+    const seasons = await this.seasonRepo.find();
+    const nameOf = new Map(seasons.map((s) => [s.id, s.name]));
+    for (const r of regs) {
+      const base = {
+        registrationId: r.id,
+        seasonName: nameOf.get(r.seasonId) ?? 'Season',
+        ageGroup: r.ageGroup,
+      };
+      if (r.firstPaymentId && paymentIds.includes(r.firstPaymentId)) {
+        map.set(r.firstPaymentId, { ...base, installment: 1 });
+      }
+      if (r.secondPaymentId && paymentIds.includes(r.secondPaymentId)) {
+        map.set(r.secondPaymentId, { ...base, installment: 2 });
+      }
+    }
+    return map;
+  }
+
+  /**
+   * Stop a payment counting towards any registration (it is being deleted or
+   * moved). The payments row itself is left to the caller.
+   */
+  async unlinkPayment(paymentId: number): Promise<void> {
+    const regs = await this.registrationRepo.find({
+      where: [{ firstPaymentId: paymentId }, { secondPaymentId: paymentId }],
+    });
+    for (const r of regs) {
+      if (r.firstPaymentId === paymentId) {
+        r.firstPaidAt = null;
+        r.firstPaymentId = null;
+        if (r.status === 'confirmed' && !r.secondPaidAt) {
+          r.status = 'pending_payment';
+        }
+      }
+      if (r.secondPaymentId === paymentId) {
+        r.secondPaidAt = null;
+        r.secondPaymentId = null;
+      }
+      await this.registrationRepo.save(r);
+    }
+  }
+
+  /** Keep a linked installment in step when its payment is edited. */
+  async syncLinkedPayment(
+    paymentId: number,
+    amount: number,
+    paidAt: Date | null,
+  ): Promise<void> {
+    const regs = await this.registrationRepo.find({
+      where: [{ firstPaymentId: paymentId }, { secondPaymentId: paymentId }],
+    });
+    for (const r of regs) {
+      if (r.firstPaymentId === paymentId) {
+        r.firstAmount = amount;
+        if (paidAt) r.firstPaidAt = paidAt;
+      }
+      if (r.secondPaymentId === paymentId) {
+        r.secondAmount = amount;
+        if (paidAt) r.secondPaidAt = paidAt;
+      }
+      await this.registrationRepo.save(r);
+    }
   }
 
   /** Undo a mis-keyed payment. */

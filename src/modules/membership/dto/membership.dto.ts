@@ -404,6 +404,54 @@ export class RecordPaymentDto {
   @IsOptional()
   @IsISO8601()
   periodEnd?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "A season registration (Indoor, Winter League…) of this player that the payment also counts towards. The same payment fills that registration's next unpaid installment — no second payment row is created.",
+    example: 28,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  registrationId?: number;
+}
+
+/** Correct a payment that was keyed in wrongly. Only the fields sent change. */
+export class UpdatePaymentDto {
+  @ApiPropertyOptional({ description: 'Amount in CAD' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amount?: number;
+
+  @ApiPropertyOptional({
+    description: 'The day the money arrived, YYYY-MM-DD',
+    example: '2026-10-05',
+  })
+  @IsOptional()
+  @IsISO8601()
+  paidAt?: string;
+
+  @ApiPropertyOptional({ enum: ['etransfer', 'cash', 'other'] })
+  @IsOptional()
+  @IsIn(['etransfer', 'cash', 'other'])
+  method?: 'etransfer' | 'cash' | 'other';
+
+  @ApiPropertyOptional({ description: 'Internal note' })
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Season registration this payment counts towards. A number moves it there, null stops it counting towards any season, leaving it out keeps the current link.',
+    nullable: true,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  registrationId?: number | null;
 }
 
 /**
