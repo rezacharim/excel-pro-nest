@@ -41,6 +41,7 @@ import {
   UpdateTrialDto,
   SendTrialInvitationDto,
   SendImodelOfferDto,
+  SendRegisterInviteDto,
 } from './dto/league.dto';
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,16 @@ export class LeaguePublicController {
   @ApiResponse({ status: 409, description: 'Player already registered' })
   register(@Body() dto: RegisterForLeagueDto, @Req() req: IpReq) {
     return this.leagueService.register(dto, clientIp(req));
+  }
+
+  @Get('trial-invite/:token')
+  @ApiOperation({
+    summary:
+      'The player a register invitation was sent for, to prefill the form (public)',
+  })
+  @ApiParam({ name: 'token' })
+  trialInvite(@Param('token') token: string) {
+    return this.leagueService.getTrialInvite(token);
   }
 
   @Get('imodel-offer/:token')
@@ -386,6 +397,30 @@ export class LeagueAdminController {
     @Body() dto: SendTrialInvitationDto,
   ) {
     return this.leagueService.inviteTrial(id, dto);
+  }
+
+  @Post('trials/:id/register-invite')
+  @ApiOperation({
+    summary:
+      'After a trial: email the family a link to register for the indoor or outdoor season',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiBody({ type: SendRegisterInviteDto })
+  registerInvite(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SendRegisterInviteDto,
+  ) {
+    return this.leagueService.sendRegisterInvite(id, dto);
+  }
+
+  @Post('trials/:id/add-member')
+  @ApiOperation({
+    summary:
+      'Put a trialist into Memberships (links an existing record with the same email and name instead of duplicating)',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  addTrialToMembers(@Param('id', ParseIntPipe) id: number) {
+    return this.leagueService.addTrialToMembers(id);
   }
 
   @Post('trials/:id/offer')

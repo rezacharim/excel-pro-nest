@@ -36,11 +36,15 @@ import {
   UpdateTrialDto,
   SendTrialInvitationDto,
   SendImodelOfferDto,
+  SendRegisterInviteDto,
 } from './dto/league.dto';
 import {
   offerUrl,
+  registerInviteUrl,
+  trialIdFromInviteToken,
   trialIdFromOfferToken,
 } from '../../common/email/offer-token';
+import { markTrialJoined } from './trial-link';
 
 /** Statuses that occupy a roster spot. */
 const OCCUPYING: LeagueRegistrationStatus[] = [
@@ -476,6 +480,18 @@ export class LeagueService implements OnModuleInit {
       } catch (error) {
         this.logger.error(`Could not mark trial as joined: ${error.message}`);
       }
+    }
+
+    // A family who came to a trial or free session and now registers: tie
+    // the trial to the member record, by the invite link when they used it
+    // and by email + player name otherwise.
+    if (user?.id) {
+      await this.linkTrialByToken(dto.trialToken, user.id);
+      await markTrialJoined(this.trialRepo.manager, {
+        email,
+        fullname: `${dto.firstName.trim()} ${dto.lastName.trim()}`,
+        userId: user.id,
+      });
     }
 
     await this.sendRegistrationEmail(season, registration);
@@ -1724,9 +1740,7 @@ export class LeagueService implements OnModuleInit {
 
   private async assertImodelOffer(token?: string | null) {
     const id = trialIdFromOfferToken(token);
-    const trial = id
-      ? await this.trialRepo.findOne({ where: { id } })
-      : null;
+    const trial = id ? await this.trialRepo.findOne({ where: { id } }) : null;
     if (!trial || !trial.offerSentAt || trial.status === 'declined') {
       throw new BadRequestException(
         'The I-Model Team is by invitation after a trial. Please use the personal link from your offer email, or book a trial at excelproso.com/trials. Questions? Call 647-703-7821.',
@@ -1750,6 +1764,128 @@ export class LeagueService implements OnModuleInit {
       : `Friend of ${ref.fullname}'s family`;
   }
 
+  /**
+   * After a trial: email the family a link to register for the indoor or
+   * outdoor season (Dashboard → Trials → "Invite to register"). Returns the
+   * link too, so it can also go out on WhatsApp. No schema change: the
+   * invitation is noted in the trial's coach notes and the status becomes
+   * "Offered a place"; it turns to "Joined" by itself when they register.
+   */
+  async sendRegisterInvite(id: number, dto: SendRegisterInviteDto) {
+    const trial = await this.trialRepo.findOne({ where: { id } });
+    if (!trial) throw new NotFoundException('Trial booking not found');
+    if (dto.season === 'indoor') {
+      const season = await this.getSeasonBySlug('indoor');
+      if (!season.registrationOpen) {
+        throw new BadRequestException(
+          'Indoor registration is closed. Open it in Dashboard → League → Indoor → Season settings first.',
+        );
+      }
+    }
+    const url = registerInviteUrl(trial.id, dto.season, trial.ageGroup);
+    const ok = await this.mailService.sendTrialRegisterInvite(
+      trial.email,
+      `${trial.firstName} ${trial.lastName}`.trim(),
+      trial.parentName,
+      { url, season: dto.season, note: dto.note?.trim() || null },
+    );
+    if (!ok) {
+      throw new BadRequestException(
+        'The email could not be sent. Please try again, or send the family the link yourself.',
+      );
+    }
+    const stamp = `Invited to register (${dto.season === 'indoor' ? 'Indoor' : 'Outdoor'}) ${new Date().toISOString().slice(0, 10)}`;
+    trial.coachNotes = trial.coachNotes
+      ? `${trial.coachNotes}\n${stamp}`
+      : stamp;
+    if (trial.status !== 'joined') trial.status = 'offered';
+    const saved = await this.trialRepo.save(trial);
+    return { ...saved, inviteUrl: url };
+  }
+
+  /** Public: who a register invitation is for, so the form opens filled in. */
+  async getTrialInvite(token: string) {
+    const id = trialIdFromInviteToken(token);
+    const trial = id ? await this.trialRepo.findOne({ where: { id } }) : null;
+    if (!trial || trial.status === 'declined') {
+      throw new BadRequestException(
+        'This invitation link is not valid. Please register with the form, or call 647-703-7821.',
+      );
+    }
+    return {
+      firstName: trial.firstName,
+      lastName: trial.lastName,
+      dateOfBirth: trial.dateOfBirth,
+      gender: trial.gender,
+      ageGroup: trial.ageGroup,
+      parentName: trial.parentName,
+      email: trial.email,
+      phone: trial.phone,
+      city: trial.city,
+    };
+  }
+
+  /**
+   * Put a trialist into Memberships. For families who joined after a trial
+   * but whose member record was never created — e.g. they paid by e-transfer
+   * and the trial was simply marked "Joined". Uses an existing record with
+   * the same email and player name when there is one, so it never makes a
+   * duplicate. Missing details (address, postal code) can be filled in later
+   * from Memberships, or by the family on /register.
+   */
+  async addTrialToMembers(id: number) {
+    const trial = await this.trialRepo.findOne({ where: { id } });
+    if (!trial) throw new NotFoundException('Trial booking not found');
+    if (trial.convertedUserId) {
+      const already = await this.userRepo.findOne({
+        where: { id: trial.convertedUserId },
+      });
+      if (already) return { trial, userId: already.id, created: false };
+    }
+    if (!trial.dateOfBirth) {
+      throw new BadRequestException(
+        'This trial has no date of birth. Add the player in Memberships by hand, or ask the family to register on the website.',
+      );
+    }
+    const { user, isNew } = await this.findOrCreatePlayer(
+      {
+        firstName: trial.firstName,
+        lastName: trial.lastName,
+        parentName: trial.parentName,
+        phone: trial.phone,
+        dateOfBirth: trial.dateOfBirth,
+        gender: trial.gender ?? 'M',
+        address1: '',
+        city: trial.city ?? '',
+        postalCode: '',
+        ageGroup: trial.ageGroup,
+      } as unknown as RegisterForLeagueDto,
+      trial.email.trim().toLowerCase(),
+    );
+    const created = isNew;
+    trial.convertedUserId = user.id;
+    trial.status = 'joined';
+    const saved = await this.trialRepo.save(trial);
+    return { trial: saved, userId: user.id, created };
+  }
+
+  /** The trial an invite link was made for → Joined, linked to the member. */
+  private async linkTrialByToken(token: string | undefined, userId: number) {
+    const id = trialIdFromInviteToken(token);
+    if (!id) return;
+    try {
+      const trial = await this.trialRepo.findOne({ where: { id } });
+      if (!trial || (trial.status === 'joined' && trial.convertedUserId)) {
+        return;
+      }
+      trial.status = 'joined';
+      trial.convertedUserId = userId;
+      await this.trialRepo.save(trial);
+    } catch (error) {
+      this.logger.error(`Could not link trial ${id}: ${error.message}`);
+    }
+  }
+
   async listTrials(status?: string) {
     const where = status ? { status: status as any } : {};
     return this.trialRepo.find({ where, order: { createdAt: 'DESC' } });
@@ -1761,7 +1897,22 @@ export class LeagueService implements OnModuleInit {
     if (dto.status) trial.status = dto.status as any;
     if (dto.coachNotes !== undefined) trial.coachNotes = dto.coachNotes || null;
     if (dto.scheduledFor) trial.scheduledFor = new Date(dto.scheduledFor);
-    return this.trialRepo.save(trial);
+    const saved = await this.trialRepo.save(trial);
+    // "Joined" means they are a member now, so they belong in Memberships.
+    // Marking it by hand used to change only the label here, which is how
+    // two paid trialists went missing from Memberships in November 2026.
+    if (
+      dto.status === 'joined' &&
+      !saved.convertedUserId &&
+      saved.dateOfBirth
+    ) {
+      try {
+        return (await this.addTrialToMembers(saved.id)).trial;
+      } catch (error) {
+        this.logger.error(`Joined trial ${id} not added: ${error.message}`);
+      }
+    }
+    return saved;
   }
 
   // ------------------------------------------------------------------
@@ -2147,7 +2298,9 @@ export class LeagueService implements OnModuleInit {
           isLate: registration.isLate,
           payInFull: registration.payInFull,
           priceNote:
-            season.kind === 'imodel' ? this.imodelPriceNote(season, registration) : null,
+            season.kind === 'imodel'
+              ? this.imodelPriceNote(season, registration)
+              : null,
         },
       );
     } catch (error) {

@@ -195,6 +195,14 @@ export class CreateUserDto {
   @IsBoolean()
   consentMarketing?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'The link from a "register after your trial" email, so the new member is tied back to the trial.',
+  })
+  @IsOptional()
+  @IsString()
+  trialToken?: string;
+
   @ApiProperty({ enum: Gender, description: 'Gender of the user' })
   @IsNotEmpty()
   @IsEnum(Gender)

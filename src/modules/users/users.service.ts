@@ -17,6 +17,9 @@ import { ConfigService } from '@nestjs/config';
 import { generateSevenDigitRandomNumber } from '../../common/utils/random';
 import { MailService } from '../mail/mail.service';
 import { JwtService } from '@nestjs/jwt';
+import { markTrialJoined } from '../league/trial-link';
+import { trialIdFromInviteToken } from '../../common/email/offer-token';
+import { TrialBooking } from '../league/entities/trial-booking.entity';
 
 @Injectable()
 export class UsersService {
@@ -166,6 +169,7 @@ export class UsersService {
         acceptedConcussion,
         consentPhoto,
         consentMarketing,
+        trialToken,
       } = createUserDto;
 
       // Convert numeric values
@@ -254,6 +258,7 @@ export class UsersService {
         if (consentMarketing) existing.marketingOptOutAt = null;
         const updated = await this.userRepository.save(existing);
         console.log('Existing player updated from /register, ID:', updated.id);
+        await this.linkTrial(trialToken, email, fullname, updated.id);
         return Object.assign(updated, { alreadyOnFile: true });
       }
 
@@ -261,6 +266,7 @@ export class UsersService {
       const savedUser = await this.userRepository.save(newUser);
 
       console.log('User saved with ID:', savedUser.id);
+      await this.linkTrial(trialToken, email, fullname, savedUser.id);
 
       // Best-effort welcome email; never block registration on email failure
       try {
@@ -288,6 +294,35 @@ export class UsersService {
         'Failed to create user with photos',
       );
     }
+  }
+
+  /**
+   * A family who came to a trial and now registers on /register: mark the
+   * trial "Joined" and tie it to this member (Dashboard → Trials). Never
+   * blocks the registration.
+   */
+  private async linkTrial(
+    token: string | undefined,
+    email: string,
+    fullname: string,
+    userId: number,
+  ) {
+    const manager = this.userRepository.manager;
+    const id = trialIdFromInviteToken(token);
+    if (id) {
+      try {
+        const repo = manager.getRepository(TrialBooking);
+        const trial = await repo.findOne({ where: { id } });
+        if (trial && !(trial.status === 'joined' && trial.convertedUserId)) {
+          trial.status = 'joined';
+          trial.convertedUserId = userId;
+          await repo.save(trial);
+        }
+      } catch (error) {
+        console.error('Could not link trial:', (error as Error).message);
+      }
+    }
+    await markTrialJoined(manager, { email, fullname, userId });
   }
 
   // Helper method to validate base64 image strings

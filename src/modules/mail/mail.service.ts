@@ -855,8 +855,8 @@ export class MailService {
       const lateNote = details.priceNote
         ? `<p style="background-color:#fdf1f0;border-left:4px solid ${BRAND_RED};padding:12px 16px;border-radius:4px;font-size:14px;color:#333333;">${this.esc(details.priceNote)}</p>`
         : details.isLate
-        ? `<p style="color:#555555;font-size:14px;">This registration was received after the deadline, so the late registration fee applies.</p>`
-        : '';
+          ? `<p style="color:#555555;font-size:14px;">This registration was received after the deadline, so the late registration fee applies.</p>`
+          : '';
 
       const payBlock = details.waitlisted
         ? ''
@@ -1045,6 +1045,62 @@ export class MailService {
       );
     } catch (error) {
       this.logger.error(`sendImodelOffer failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * After a trial or free session: invite the family to register for the
+   * indoor or outdoor season. Sent from Dashboard → Trials → "Invite to
+   * register". A reply to the family's own trial request, so it is
+   * transactional, not promotional. Deliberately quotes no price — the
+   * registration page shows the exact amount for this family (new player or
+   * member), and a price written into an email is how families end up told
+   * two different numbers.
+   */
+  async sendTrialRegisterInvite(
+    to: string,
+    playerName: string,
+    parentName: string | null,
+    details: {
+      url: string;
+      season: 'indoor' | 'outdoor';
+      note?: string | null;
+    },
+  ): Promise<boolean> {
+    try {
+      const first = this.esc(playerName.split(' ')[0] || playerName);
+      const indoor = details.season === 'indoor';
+      const what = indoor
+        ? 'the <strong>Indoor Season</strong> at Richmond Hill Green Dome'
+        : 'the <strong>Outdoor Season</strong>';
+      const whatFa = indoor
+        ? 'فصل سالن (Indoor) در Richmond Hill Green Dome'
+        : 'فصل فضای باز (Outdoor)';
+      const body = `
+        ${this.heading(`${first} is invited to join Excel Pro`)}
+        <p>${parentName ? `Hi ${this.esc(parentName)},` : 'Hi,'}</p>
+        <p>Thank you for bringing <strong>${this.esc(playerName)}</strong> to try a session with us. Our coaches would love ${first} to keep training with Excel Pro in ${what}.</p>
+        ${details.note ? `<p>${this.esc(details.note)}</p>` : ''}
+        <p>Registration takes about three minutes. ${first}&rsquo;s details from the trial are already filled in &mdash; just check them, add the rest and sign the agreement. The amount to pay and the e-transfer details are shown on the last screen and in the confirmation email.</p>
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${details.url}" style="display:inline-block;background-color:${BRAND_RED};color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 32px;border-radius:6px;font-size:16px;">Register ${first}</a>
+        </div>
+        <p style="font-size:13px;color:#666;">Questions? Reply to this email or call <a href="tel:+16477037821" style="color:${BRAND_RED};text-decoration:none;">${ACADEMY_PHONE}</a>.</p>
+        <hr style="border:none;border-top:1px solid #e5e5ea;margin:28px 0;" />
+        <div dir="rtl" style="text-align:right;">
+          <p>${parentName ? `سلام ${this.esc(parentName)}،` : 'سلام،'}</p>
+          <p>از اینکه ${this.esc(playerName)} را برای جلسه‌ی آزمایشی آوردید متشکریم. مربیان ما خوشحال می‌شوند ${first} در ${whatFa} با Excel Pro ادامه دهد.</p>
+          <p>ثبت‌نام حدود سه دقیقه طول می‌کشد. مبلغ و روش پرداخت در صفحه‌ی آخر و در ایمیل تأیید نوشته شده است.</p>
+          <p><a href="${details.url}" style="color:${BRAND_RED};font-weight:bold;">ثبت‌نام ${first}</a></p>
+        </div>`;
+      return await this.send(
+        to,
+        `${playerName} - register for the Excel Pro ${indoor ? 'Indoor' : 'Outdoor'} Season`,
+        this.layout('Invitation to register', body),
+      );
+    } catch (error) {
+      this.logger.error(`sendTrialRegisterInvite failed: ${error.message}`);
       return false;
     }
   }
